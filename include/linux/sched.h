@@ -91,6 +91,11 @@ struct sched_param {
 #include <linux/cred.h>
 #include <linux/llist.h>
 
+#include <linux/user_unwind.h>
+/* STINGTODO: Don't want to recompile everytime sting.h/user_unwind.h changes, so for now, copy these here */
+/* TODO: Make this a kernel config */
+#define CONFIG_STING 
+
 #include <asm/processor.h>
 
 struct exec_domain;
@@ -1616,6 +1621,20 @@ struct task_struct {
 #endif
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 	atomic_t ptrace_bp_refcnt;
+#endif
+
+#ifdef CONFIG_STING
+	/* STINGTODO: Move this to another header, taking care of 
+		ptrace.h circular dependency */
+	struct user_stack_info {
+		struct stack_trace trace;
+		int bin_ip_exists; /* Does entrypoint exist in program? */
+		int ept_ind; /* Entrypoint index */
+		ino_t *vma_inoden; /* inodes for each VMA in trace */
+		unsigned long *vma_start; /* Start address for each VMA in trace */
+	} user_stack; 
+    unsigned long *sting_pending; 
+    int sting_pending_nr; 
 #endif
 };
 

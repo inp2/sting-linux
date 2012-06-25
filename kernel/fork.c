@@ -68,6 +68,7 @@
 #include <linux/oom.h>
 #include <linux/khugepaged.h>
 #include <linux/signalfd.h>
+#include <linux/sting.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -1105,6 +1106,49 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
 	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
 }
 
+#ifdef CONFIG_STING
+static int sting_pending_init(struct task_struct *t)
+{
+	t->sting_pending = NULL; 
+	t->sting_pending_nr = 0; 
+
+	t->sting_pending = kmalloc(sizeof(unsigned long) *
+				STING_MAX_PENDING, GFP_KERNEL); 
+	if (!t->sting_pending)
+		return -ENOMEM; 
+	return 0; 
+}
+
+static int user_unwind_init(struct task_struct *t)
+{
+	t->user_stack.trace.entries = NULL; 
+	t->user_stack.vma_inoden = NULL; 
+	t->user_stack.vma_start = NULL; 
+
+	t->user_stack.trace.entries = kmalloc(sizeof(unsigned long) * 
+				USER_STACK_MAX, GFP_KERNEL); 
+	if (!t->user_stack.trace.entries) 
+		goto fail; 
+	t->user_stack.vma_inoden = kmalloc(sizeof(unsigned long) * 
+				USER_STACK_MAX, GFP_KERNEL); 
+	if (!t->user_stack.trace.entries) 
+		goto free_entries; 
+	t->user_stack.vma_start = kmalloc(sizeof(unsigned long) * 
+				USER_STACK_MAX, GFP_KERNEL); 
+	if (!t->user_stack.trace.entries) 
+		goto free_vma_inoden; 
+
+	return 0; 
+
+free_vma_inoden:
+	kfree(t->user_stack.vma_inoden); 
+free_entries:
+	kfree(t->user_stack.trace.entries); 
+fail:
+	return -ENOMEM; 
+}
+#endif 
+
 /*
  * This creates a new process as a copy of the old one,
  * but does not actually start it yet.
@@ -1161,6 +1205,13 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p = dup_task_struct(current);
 	if (!p)
 		goto fork_out;
+
+#ifdef CONFIG_STING
+	if (sting_pending_init(p) < 0)
+		goto bad_fork_free; 
+	if (user_unwind_init(p) < 0)
+		goto bad_user_stack; 
+#endif
 
 	ftrace_graph_init_task(p);
 
@@ -1455,7 +1506,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	perf_event_fork(p);
 
 	trace_task_newtask(p, clone_flags);
-
 	return p;
 
 bad_fork_free_pid:
@@ -1498,8 +1548,13 @@ bad_fork_cleanup_cgroup:
 bad_fork_cleanup_count:
 	atomic_dec(&p->cred->user->processes);
 	exit_creds(p);
+#ifdef CONFIG_STING
+bad_user_stack:
+	kfree(p->sting_pending); 
+#endif
 bad_fork_free:
 	free_task(p);
+
 fork_out:
 	return ERR_PTR(retval);
 }

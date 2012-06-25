@@ -895,6 +895,20 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
+#ifdef CONFIG_STING 
+static inline void free_sting_pending(struct task_struct *t) 
+{
+	kfree(t->sting_pending); 
+}
+
+static inline void free_user_unwind(struct task_struct *t) 
+{
+	kfree(t->user_stack.trace.entries); 
+	kfree(t->user_stack.vma_inoden); 
+	kfree(t->user_stack.vma_start); 
+}
+#endif 
+
 void do_exit(long code)
 {
 	struct task_struct *tsk = current;
@@ -1061,6 +1075,11 @@ void do_exit(long code)
 	 */
 	smp_mb();
 	raw_spin_unlock_wait(&tsk->pi_lock);
+
+#ifdef CONFIG_STING
+	free_user_unwind(tsk); 
+	free_sting_pending(tsk); 
+#endif 
 
 	/* causes final put_task_struct in finish_task_switch(). */
 	tsk->state = TASK_DEAD;

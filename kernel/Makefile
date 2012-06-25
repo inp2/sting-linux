@@ -107,6 +107,14 @@ obj-$(CONFIG_PADATA) += padata.o
 obj-$(CONFIG_CRASH_DUMP) += crash_dump.o
 obj-$(CONFIG_JUMP_LABEL) += jump_label.o
 
+# TODO: CONFIG_STING
+obj-y += dwarf-read.o
+obj-y += dwarf-cfi.o
+obj-y += dwarf-expression.o
+obj-y += dwarf-fde.o
+obj-y += user_unwind.o
+obj-y += sting.o
+
 $(obj)/configs.o: $(obj)/config_data.h
 
 # config_data.h contains the same information as ikconfig.h but gzipped.
