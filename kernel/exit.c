@@ -895,20 +895,28 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
+#if 0
 #ifdef CONFIG_STING 
+/* 	Checks are needed because allocation during fork 
+	fails sometimes (why?) */
 static inline void free_sting_pending(struct task_struct *t) 
 {
-	kfree(t->sting_pending); 
+	if (t->sting_pending)
+		kfree(t->sting_pending); 
 }
 
 static inline void free_user_unwind(struct task_struct *t) 
 {
-	kfree(t->user_stack.trace.entries); 
-	kfree(t->user_stack.vma_inoden); 
-	kfree(t->user_stack.vma_start); 
+	struct user_stack_info *us = &(t->user_stack); 
+	if (us->trace.entries) 
+		kfree(us->trace.entries); 
+	if (us->vma_inoden)
+		kfree(us->vma_inoden); 
+	if (us->vma_start)
+		kfree(us->vma_start); 
 }
 #endif 
-
+#endif
 void do_exit(long code)
 {
 	struct task_struct *tsk = current;
@@ -990,6 +998,13 @@ void do_exit(long code)
 
 	tsk->exit_code = code;
 	taskstats_exit(tsk, group_dead);
+
+#if 0
+#ifdef CONFIG_STING
+	free_user_unwind(tsk); 
+	free_sting_pending(tsk); 
+#endif 
+#endif 
 
 	exit_mm(tsk);
 
@@ -1075,11 +1090,6 @@ void do_exit(long code)
 	 */
 	smp_mb();
 	raw_spin_unlock_wait(&tsk->pi_lock);
-
-#ifdef CONFIG_STING
-	free_user_unwind(tsk); 
-	free_sting_pending(tsk); 
-#endif 
 
 	/* causes final put_task_struct in finish_task_switch(). */
 	tsk->state = TASK_DEAD;

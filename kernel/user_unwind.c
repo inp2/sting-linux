@@ -403,8 +403,7 @@ struct vm_area_struct *find_in_vma(struct mm_struct *mm, unsigned long ip)
 	return vma; 
 }
 
-#if 0
-void dump_memory_areas(struct task_struct *t)
+static inline void dump_memory_areas(struct task_struct *t)
 {
 	unsigned long addr = 0; 
 	struct vm_area_struct *vma = NULL; 
@@ -448,7 +447,6 @@ done:
 	}
 	free_page((unsigned long) buf); 
 }
-#endif 
 
 static inline int stack_guard_page(struct vm_area_struct *vma, unsigned long addr)
 {
@@ -460,7 +458,7 @@ int is_stack_ip(struct vm_area_struct *vma, unsigned long ip, struct task_struct
 	unsigned long start; 
 	if (!(vma->vm_start <= t->mm->start_stack &&
 		vma->vm_end >= t->mm->start_stack)) {
-		STING_ERR(1, "sp not within stack\n"); 
+		STING_ERR(2, "sp not within stack\n"); 
 		return -EINVAL; 
 	}
 
@@ -486,14 +484,14 @@ struct vm_area_struct *vma_if_exec_ip(unsigned long ip, struct task_struct *t)
 
 	vma = find_in_vma(t->mm, ip); 
 	if (vma == NULL) {
-		STING_ERR(1, "exec vma not found\n"); 
+		STING_ERR(2, "exec vma not found: [%s]\n", t->comm); 
 		ret = -ENOENT; 
 		goto fail; 
 	} 
 
 	ret = is_exec_ip(vma, ip, t); 
 	if (ret < 0) 
-		STING_ERR(1, "ip not executable!\n"); 
+		STING_ERR(2, "[%lx] not executable: [%s]\n", (unsigned long) ip, t->comm); 
 
 fail: 
 	if (ret < 0)
@@ -509,14 +507,14 @@ struct vm_area_struct *vma_if_stack_ip(unsigned long ip, struct task_struct *t)
 
 	vma = find_in_vma(t->mm, ip); 
 	if (vma == NULL) {
-		STING_ERR(1, "stack vma not found\n"); 
+		STING_ERR(1, "stack vma not found: [%s]\n", t->comm); 
 		ret = -ENOENT; 
 		goto fail; 
 	} 
 
 	ret = is_stack_ip(vma, ip, t); 
 	if (ret < 0) 
-		STING_ERR(1, "not in stack!\n"); 
+		STING_ERR(1, "[%lx] not in stack: [%s]\n", (unsigned long) ip, t->comm); 
 
 fail:
 	if (ret < 0)
@@ -525,30 +523,30 @@ fail:
 }
 EXPORT_SYMBOL(vma_if_stack_ip); 
 
-#define CHECK_PRINT_EXIT(f) { \
-	if (f) { \
-		printk(#f); \
-		goto fail; \
-	} \
-}
+#define IS_BIN_VMA(t, vma) ( \
+				(t->mm->exe_file->f_dentry->d_inode->i_ino == \
+				vma->vm_file->f_dentry->d_inode->i_ino) \
+		) 
 
 static void update_us(struct task_struct *t, struct vm_area_struct *vma, 
-		struct pt_regs *regs)
+		unsigned long ip)
 {
 	struct user_stack_info *us; 
 	int c; 
 	ino_t vma_inode; 
 
+	if (!vma->vm_file)
+		return; 
+	vma_inode = vma->vm_file->f_dentry->d_inode->i_ino; 
 	us = &(t->user_stack); 
 	c = us->trace.nr_entries; 
-	vma_inode = vma->vm_file->f_dentry->d_inode->i_ino; 
 
 	/* Do not fill first IP in next VMA region */
-	if (regs->ip < vma->vm_start || regs->ip > vma->vm_end) 
+	if (ip < vma->vm_start || ip > vma->vm_end) 
 		return; 
 
-	us->trace.entries[c] = regs->ip; 
-	if (current->mm->exe_file->f_dentry->d_inode->i_ino == vma_inode) {
+	us->trace.entries[c] = ip; 
+	if (t->mm->exe_file->f_dentry->d_inode->i_ino == vma_inode) {
 		/* Program entry */
 		if (!us->bin_ip_exists) {
 			/* First program entry */
@@ -571,12 +569,129 @@ static void update_us(struct task_struct *t, struct vm_area_struct *vma,
 	us->trace.nr_entries++; 
 }
 
+static void vma_start_ino(struct task_struct *t)
+{
+	struct user_stack_info *us = &(t->user_stack); 
+	struct vm_area_struct *vma; 
+	int i = 0; 
+	unsigned long ip; 
+
+	for (i = 0; i < us->trace.nr_entries; i++) {
+		ip = us->trace.entries[i]; 
+		if (ip == ULONG_MAX) {
+			us->trace.nr_entries = i; 
+			break; 
+		}
+		vma = find_in_vma(t->mm, ip); 
+		if (vma == NULL || vma->vm_file == NULL) {
+			us->trace.nr_entries = i; 
+			break; 
+		}
+		update_us(t, vma, ip); 
+	}
+
+	return; 
+}
+
+struct stack_frame_user {
+	const void __user	*next_fp;
+	unsigned long		ret_addr;
+};
+
+static int copy_stack_frame_user(const void __user *fp,
+			struct stack_frame_user *frame)
+{
+	int ret;
+
+	if (!access_ok(VERIFY_READ, fp, sizeof(*frame)))
+		return 0;
+
+	ret = 1;
+	pagefault_disable();
+	if (__copy_from_user_inatomic(frame, fp, sizeof(*frame)))
+		ret = 0;
+	pagefault_enable();
+
+	return ret;
+}
+
+static inline void __static_save_stack_trace_user(struct static_stack_trace *trace)
+{
+	const struct pt_regs *regs = task_pt_regs(current);
+	const void __user *fp = (const void __user *)regs->bp;
+
+	if (trace->nr_entries < trace->max_entries)
+		trace->entries[trace->nr_entries++] = regs->ip;
+
+	while (trace->nr_entries < trace->max_entries) {
+		struct stack_frame_user frame;
+
+		frame.next_fp = NULL;
+		frame.ret_addr = 0;
+		if (!copy_stack_frame_user(fp, &frame))
+			break;
+		if ((unsigned long)fp < regs->sp)
+			break;
+		if (frame.ret_addr) {
+			trace->entries[trace->nr_entries++] =
+				frame.ret_addr;
+		}
+		if (fp == frame.next_fp)
+			break;
+		fp = frame.next_fp;
+	}
+}
+
+void static_save_stack_trace_user(struct static_stack_trace *trace)
+{
+	/*
+	 * Trace user stack if we are not a kernel thread
+	 */
+	if (current->mm) {
+		__static_save_stack_trace_user(trace);
+	}
+	if (trace->nr_entries == 1) {
+		/* Garbage IP */
+		trace->nr_entries--; 
+	}
+	if (trace->nr_entries < trace->max_entries)
+		trace->entries[trace->nr_entries++] = ULONG_MAX;
+}
+
 static inline void us_init(struct user_stack_info *us)
 {
 	us->trace.nr_entries = 0; 
 	us->trace.max_entries = USER_STACK_MAX; 
 	us->bin_ip_exists = 0; 
 	us->ept_ind = 0; 
+}
+
+#define CHECK_PRINT_EXIT(f) { \
+	if (f) { \
+		printk(#f); \
+		goto fail; \
+	} \
+}
+
+int check_valid_user_context(struct task_struct *t) 
+{
+	if (!t->mm) 
+		goto fail; 
+	#if 0
+	if (!t->user_stack.trace.entries) {
+		STING_ERR(1, "mm but no user_stack: [%s]\n", t->comm); 
+		goto fail; 
+	}
+	#endif 
+	CHECK_PRINT_EXIT(in_atomic()); 
+	CHECK_PRINT_EXIT(in_irq()); 
+	CHECK_PRINT_EXIT(in_interrupt()); 
+	CHECK_PRINT_EXIT(irqs_disabled()); 
+
+	return 1; 
+
+fail:
+	return 0; 
 }
 
 /**
@@ -588,6 +703,9 @@ static inline void us_init(struct user_stack_info *us)
  * t->user_stack.ept_ind is -1 or not. 
  * 
  * For pfwall purposes, also fills vma_start and inode number. 
+ * Invariants: 
+ * 	On exit, trace.entries[nr_entries - 1] = ULONG_MAX and
+ * 	each trace.entries has a valid VMA. 
  */
 
 void user_unwind(struct task_struct *t)
@@ -605,25 +723,25 @@ void user_unwind(struct task_struct *t)
 	
 	us_init(&(t->user_stack)); 
 
-	CHECK_PRINT_EXIT(in_atomic()); 
-	CHECK_PRINT_EXIT(in_irq()); 
-	CHECK_PRINT_EXIT(in_interrupt()); 
-	CHECK_PRINT_EXIT(irqs_disabled()); 
+	if (!check_valid_user_context(t))
+		return; 
 
 	/* Initialize first frame from kernel stack */
 	STING_DBG("\n==========================\n"); 
 	memcpy(&unw.regs, task_pt_regs(t), sizeof(unw.regs)); 
 
-	/* The CFA for hte first frame (VDSO) is the stack pointer */
+	/* The CFA for hte first frame is the stack pointer */
 	unw.cfa = task_pt_regs(t)->sp; 
 
 	/* Debug: Print memory layout */
-	// dump_memory_areas(t); 
+	if (STING_DBG_ON) 
+		dump_memory_areas(t); 
+	
 	/* Map in the stack */
 	vma = vma_if_stack_ip(unw.cfa, t); 
 	if (IS_ERR(vma)) {
 		/* Stack not found? */
-		goto fail; 
+		goto end; 
 	}
 	stack_start = unw.regs.sp; 
 	stack_end = vma->vm_end; 
@@ -640,8 +758,17 @@ void user_unwind(struct task_struct *t)
 		STING_DBG("VMA start: [%s, %lx]\n", t->comm, vma->vm_start); 
 		eh_len = get_eh_section(vma, &eh_start); 
 		if (eh_len == 0) {
-			/* Fall back to normal stack trace */
-			STING_ERR(1, "No eh_frame_hdr section!: [%s]\n", t->comm); 
+			/* If only the binary itself doesn't have eh_frame, we can still get ept_ind */
+			if (t->user_stack.trace.nr_entries > 0 && IS_BIN_VMA(t, vma) && 
+				(t->user_stack.trace.nr_entries < t->user_stack.trace.max_entries)) {
+				update_us(t, vma, unw.regs.ip); 
+			} else {
+				/* Else, do a full normal stack trace */
+				STING_ERR(2, "No eh_frame_hdr section, " 
+					"reverting to normal trace: [%s]\n", t->comm); 
+				static_save_stack_trace_user(&(t->user_stack.trace)); 
+				vma_start_ino(t); 
+			}
 			goto fail_put_stack_pages; 
 		}
 		STING_DBG("eh_frame length: [%s, %lx]\n", t->comm, eh_len); 
@@ -651,22 +778,25 @@ void user_unwind(struct task_struct *t)
 		eh_frame_data((char *) eh_start, &ed); 
 
 		do {
+			if (STING_DBG_ON)
+				__show_unw_regs(&unw); 
+
 			/* Before each virtual unwind step, check
 			   validity of previous step's stack pointer */
-			// __show_unw_regs(&unw); 
 			if (!(unw.regs.sp >= stack_start && unw.regs.sp < stack_end))
 				goto fail_put_region_pages; 
 			unw_regs(&unw, &regs); 
 
 			/* Update IP in user stack trace */
-			update_us(t, vma, task_pt_regs(t)); 
+			update_us(t, vma, unw.regs.ip); 
 
 		} while (((ret = unw_step(&unw, &ed, stack_end, stack_start)) == 0) &&
 					(us->trace.nr_entries <= us->trace.max_entries)); 
 
 		/* If unw_step failed because of anything other than 
 			eh_frame_hdr lookup (-ENOENT), break out. -ENOENT is
-			ok, as may signify the next VMA region for stack IPs. */
+			ok, as it signifies the next VMA region for stack IPs. 
+			-ENOENT is returned only by lookup(). */
 		if (ret != -ENOENT)
 			goto fail_put_region_pages; 
 		/* Release pinned pages */
@@ -677,7 +807,7 @@ fail_put_region_pages:
 	put_user_pages_range(eh_frame_pgs, np_ehf); 
 fail_put_stack_pages:
 	put_user_pages_range(stack_pgs, np_st); 
-fail:
+end:
 	STING_DBG("\n==========================\n"); 
 	/* pfwall-specific: Fill last entry */
 	if (us->trace.nr_entries < us->trace.max_entries)

@@ -1624,15 +1624,7 @@ struct task_struct {
 #endif
 
 #ifdef CONFIG_STING
-	/* STINGTODO: Move this to another header, taking care of 
-		ptrace.h circular dependency */
-	struct user_stack_info {
-		struct stack_trace trace;
-		int bin_ip_exists; /* Does entrypoint exist in program? */
-		int ept_ind; /* Entrypoint index */
-		ino_t *vma_inoden; /* inodes for each VMA in trace */
-		unsigned long *vma_start; /* Start address for each VMA in trace */
-	} user_stack; 
+	struct user_stack_info user_stack; 
     unsigned long *sting_pending; 
     int sting_pending_nr; 
 #endif

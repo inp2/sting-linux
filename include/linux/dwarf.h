@@ -22,7 +22,7 @@
 #include <linux/ptrace.h>
 #include <asm/dwarf.h>
 
-#define DWARF_DEBUG_LVL 1
+#define DWARF_DEBUG_LVL 0
 #define DWARF_DEBUG(cond, fmt, args...) \
 do { \
         if (cond > DWARF_DEBUG_LVL) \

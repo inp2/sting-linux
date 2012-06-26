@@ -1106,6 +1106,7 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
 	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
 }
 
+#if 0
 #ifdef CONFIG_STING
 static int sting_pending_init(struct task_struct *t)
 {
@@ -1119,7 +1120,7 @@ static int sting_pending_init(struct task_struct *t)
 	return 0; 
 }
 
-static int user_unwind_init(struct task_struct *t)
+static int user_stack_init(struct task_struct *t)
 {
 	t->user_stack.trace.entries = NULL; 
 	t->user_stack.vma_inoden = NULL; 
@@ -1131,11 +1132,11 @@ static int user_unwind_init(struct task_struct *t)
 		goto fail; 
 	t->user_stack.vma_inoden = kmalloc(sizeof(unsigned long) * 
 				USER_STACK_MAX, GFP_KERNEL); 
-	if (!t->user_stack.trace.entries) 
+	if (!t->user_stack.vma_inoden)
 		goto free_entries; 
 	t->user_stack.vma_start = kmalloc(sizeof(unsigned long) * 
 				USER_STACK_MAX, GFP_KERNEL); 
-	if (!t->user_stack.trace.entries) 
+	if (!t->user_stack.vma_start)
 		goto free_vma_inoden; 
 
 	return 0; 
@@ -1147,6 +1148,7 @@ free_entries:
 fail:
 	return -ENOMEM; 
 }
+#endif 
 #endif 
 
 /*
@@ -1205,13 +1207,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p = dup_task_struct(current);
 	if (!p)
 		goto fork_out;
-
-#ifdef CONFIG_STING
-	if (sting_pending_init(p) < 0)
-		goto bad_fork_free; 
-	if (user_unwind_init(p) < 0)
-		goto bad_user_stack; 
-#endif
 
 	ftrace_graph_init_task(p);
 
@@ -1356,9 +1351,17 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	retval = copy_mm(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_signal;
+#if 0
+#ifdef CONFIG_STING
+	if (sting_pending_init(p) < 0 && p->mm)
+		goto bad_fork_cleanup_mm; 
+	if (user_stack_init(p) < 0 && p->mm)
+		goto bad_sting_pending; 
+#endif
+#endif 
 	retval = copy_namespaces(clone_flags, p);
 	if (retval)
-		goto bad_fork_cleanup_mm;
+		goto bad_fork_cleanup_mm; 
 	retval = copy_io(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_namespaces;
@@ -1521,6 +1524,18 @@ bad_fork_cleanup_namespaces:
 bad_fork_cleanup_mm:
 	if (p->mm)
 		mmput(p->mm);
+#if 0
+bad_sting_pending:
+#ifdef CONFIG_STING
+	kfree(p->sting_pending); 
+#endif
+bad_user_stack:
+#ifdef CONFIG_STING
+	kfree(p->user_stack.trace.entries); 
+	kfree(p->user_stack.vma_inoden); 
+	kfree(p->user_stack.vma_start); 
+#endif
+#endif 
 bad_fork_cleanup_signal:
 	if (!(clone_flags & CLONE_THREAD))
 		free_signal_struct(p->signal);
@@ -1548,10 +1563,6 @@ bad_fork_cleanup_cgroup:
 bad_fork_cleanup_count:
 	atomic_dec(&p->cred->user->processes);
 	exit_creds(p);
-#ifdef CONFIG_STING
-bad_user_stack:
-	kfree(p->sting_pending); 
-#endif
 bad_fork_free:
 	free_task(p);
 

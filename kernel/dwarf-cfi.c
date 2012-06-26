@@ -294,8 +294,12 @@ int dwarf_cfi_run(struct dwarf_fde *fde, struct dwarf_state *state,
 			addr += len;
 			break;
 
-/* XXX NOT USED?
 		case DW_CFA_GNU_args_size:
+			STING_ERR(2, "Unsupported CFA opcode DW_CFA_GNU_args_size: [%s]\n", current->comm); 
+			ret = -EINVAL;
+			goto fail;
+			
+/* XXX NOT USED?
 			if ((ret = dwarf_read_uleb128(&addr, &val)) < 0)
 				goto fail;
 			sr->args_size = val;
