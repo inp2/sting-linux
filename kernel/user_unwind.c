@@ -673,27 +673,6 @@ static inline void us_init(struct user_stack_info *us)
 	} \
 }
 
-int check_valid_user_context(struct task_struct *t) 
-{
-	if (!t->mm) 
-		goto fail; 
-	#if 0
-	if (!t->user_stack.trace.entries) {
-		STING_ERR(1, "mm but no user_stack: [%s]\n", t->comm); 
-		goto fail; 
-	}
-	#endif 
-	CHECK_PRINT_EXIT(in_atomic()); 
-	CHECK_PRINT_EXIT(in_irq()); 
-	CHECK_PRINT_EXIT(in_interrupt()); 
-	CHECK_PRINT_EXIT(irqs_disabled()); 
-
-	return 1; 
-
-fail:
-	return 0; 
-}
-
 /**
  * user_unwind() - Use eh_frame to unwind user stack
  * @t:		Task struct
@@ -702,10 +681,14 @@ fail:
  * Successful run can be detected by checking if 
  * t->user_stack.ept_ind is -1 or not. 
  * 
- * For pfwall purposes, also fills vma_start and inode number. 
+ * Do NOT call this function in improper contexts - 
+ * !t->mm, in_atomic(), in_irq(), in_interrupt(), irqs_disabled()
+ * Call it only in process contexts with a userspace mm. 
+ *
  * Invariants: 
  * 	On exit, trace.entries[nr_entries - 1] = ULONG_MAX and
  * 	each trace.entries has a valid VMA. 
+ *
  */
 
 void user_unwind(struct task_struct *t)
@@ -722,9 +705,6 @@ void user_unwind(struct task_struct *t)
 	struct user_stack_info *us = &(t->user_stack); 
 	
 	us_init(&(t->user_stack)); 
-
-	if (!check_valid_user_context(t))
-		return; 
 
 	/* Initialize first frame from kernel stack */
 	STING_DBG("\n==========================\n"); 

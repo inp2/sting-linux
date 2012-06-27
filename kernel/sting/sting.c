@@ -3,30 +3,47 @@
 #include <asm-generic/current.h>
 #include <linux/module.h>
 #include <linux/fs.h>
+#include <linux/hardirq.h>
+#include <linux/sched.h>
+
 #include "ept_dict.h"
 
 extern int sting_get_adversary(const char *fname, int flags);
 extern char *get_syscall_fname(void); 
 
+static int check_valid_user_context(struct task_struct *t) 
+{
+	if (!t->mm) 
+		goto fail; 
+	if (in_atomic() || in_irq() || in_interrupt() || irqs_disabled())
+		goto fail; 
+
+	return 1; 
+
+fail:
+	return 0; 
+}
+
 void sting_syscall_begin(void) 
 {
-	char *fname; 
+	char *fname = NULL; 
 	uid_t adv_uid; 
 	struct ept_dict_entry *e, *r; 
 	int ntest; 
 	struct ept_dict_key k; 
 	struct ept_dict_val v; 
+
+	if (!check_valid_user_context(current))
+		goto end; 
 	k.ino = 12; 
 	k.offset = 13; 
 	v.adversary_access = 2; 
 	v.attack_history = 1; 
 
-#if 0
 	/* check if nameres call */
 	fname = get_syscall_fname(); 
 	if (!fname) 
 		goto end; 
-#endif
 	
 	/* get entrypoint (if performance needed, do this after adversary check) */
 	user_unwind(current); 
