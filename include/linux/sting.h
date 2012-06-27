@@ -3,7 +3,7 @@
 #define STING_MAX_PENDING 16
 
 #define STING_DBG_ON 0 
-#define STING_ERR_LVL 1 
+#define STING_ERR_LVL 0
 
 #define STING_DBG(s, ...) \
 	do { \
@@ -22,4 +22,3 @@
 	} while (0) 
 
 extern void sting_syscall_begin(void); 
-

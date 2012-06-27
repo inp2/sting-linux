@@ -113,7 +113,7 @@ obj-y += dwarf-cfi.o
 obj-y += dwarf-expression.o
 obj-y += dwarf-fde.o
 obj-y += user_unwind.o
-obj-y += sting.o
+obj-y += sting/
 
 $(obj)/configs.o: $(obj)/config_data.h
 
