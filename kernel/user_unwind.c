@@ -24,8 +24,8 @@
 /* Load ld.so's inode number */
 
 /* Uninitialized value */
-ino_t ld_inode = -1; 
-EXPORT_SYMBOL(ld_inode); 
+ino_t ld_inode = -1;
+EXPORT_SYMBOL(ld_inode);
 
 static ssize_t
 pft_ld_inode_read(struct file *file, char __user *ubuf,
@@ -121,7 +121,7 @@ static void dwarf_regs_set(struct unw_t *u, struct dwarf_regs *regs)
 	dwarf_regs_dwarf2pt(regs, &u->regs);
 }
 
-int unw_step(struct unw_t *u, struct eh_table_data *ed, 
+int unw_step(struct unw_t *u, struct eh_table_data *ed,
 		unsigned long st_high, unsigned long st_low)
 {
 	struct table_entry *entry;
@@ -132,7 +132,7 @@ int unw_step(struct unw_t *u, struct eh_table_data *ed,
 
 	entry = lookup(u->regs.ip, ed);
 	if (!entry)
-		return -ENOENT; 
+		return -ENOENT;
 
 	data = (void *) (ed->table_base + entry->fde_offset);
 
@@ -159,7 +159,7 @@ void unw_regs(struct unw_t *u, struct pt_regs *regs)
 #ifdef CONFIG_X86_64
 void __show_unw_regs(struct unw_t *u)
 {
-	struct pt_regs *regs = &u->regs; 
+	struct pt_regs *regs = &u->regs;
 	printk(KERN_INFO "RIP: %04lx:[<%016lx>] ", regs->cs & 0xffff, regs->ip);
 	printk(KERN_INFO "RSP: %04lx:%016lx  EFLAGS: %08lx\n", regs->ss,
 			regs->sp, regs->flags);
@@ -174,13 +174,13 @@ void __show_unw_regs(struct unw_t *u)
 	printk(KERN_INFO "R13: %016lx R14: %016lx R15: %016lx\n",
 	       regs->r13, regs->r14, regs->r15);
 
-	printk(KERN_INFO "CFA: %08lx\n", (unsigned long) u->cfa); 
+	printk(KERN_INFO "CFA: %08lx\n", (unsigned long) u->cfa);
 }
-#endif 
+#endif
 #ifdef CONFIG_X86_32
 void __show_unw_regs(struct unw_t *u)
 {
-	struct pt_regs *regs = &u->regs; 
+	struct pt_regs *regs = &u->regs;
 	printk("EIP %08lx\n", regs->ip);
 
 	printk(KERN_INFO "EAX: %08lx EBX: %08lx ECX: %08lx EDX: %08lx\n",
@@ -190,7 +190,7 @@ void __show_unw_regs(struct unw_t *u)
 	printk(KERN_INFO " DS: %04x ES: %04x FS: %04x GS: %04lx SS: %04lx\n",
 	       (u16)regs->ds, (u16)regs->es, (u16)regs->fs, regs->gs, regs->ss);
 
-	printk(KERN_INFO "CFA: %08lx\n", (unsigned long) u->cfa); 
+	printk(KERN_INFO "CFA: %08lx\n", (unsigned long) u->cfa);
 }
 #endif
 
@@ -199,7 +199,7 @@ void eh_frame_data(char *base, struct eh_table_data *ed)
 	struct eh_frame_hdr *hdr;
 	dwarf_word_t addr, eh_frame_start;
 
-	hdr = (struct eh_frame_hdr *) base; 
+	hdr = (struct eh_frame_hdr *) base;
 	addr = (dwarf_word_t) (hdr + 1);
 
 	if (dwarf_read_pointer(&addr, hdr->eh_frame_ptr_enc,
@@ -223,199 +223,199 @@ void eh_frame_data(char *base, struct eh_table_data *ed)
 	ed->table_base = (dwarf_word_t) hdr;
 
 failed:
-	return; 
+	return;
 }
 
-int get_user_pages_range(struct task_struct *t, unsigned long start, 
+int get_user_pages_range(struct task_struct *t, unsigned long start,
 		unsigned long len, struct page ***pgs)
 {
-	int nr, nm = 0, ret = 0; 
-	unsigned long end; 
-	struct page **pages = NULL; 
+	int nr, nm = 0, ret = 0;
+	unsigned long end;
+	struct page **pages = NULL;
 
-	nr = (len / PAGE_SIZE) + 1; 
-	end = start + (nr << PAGE_SHIFT); 
-	*pgs = kmalloc(sizeof(struct page *) * 
-			nr, GFP_ATOMIC); 
-	pages = *pgs; 
-	nm = __get_user_pages_fast(start, nr, 0, pages); 
-	STING_DBG("__get_user_pages_fast: [%d out of %d]\n", nm, nr); 
+	nr = (len / PAGE_SIZE) + 1;
+	end = start + (nr << PAGE_SHIFT);
+	*pgs = kmalloc(sizeof(struct page *) *
+			nr, GFP_ATOMIC);
+	pages = *pgs;
+	nm = __get_user_pages_fast(start, nr, 0, pages);
+	STING_DBG("__get_user_pages_fast: [%d out of %d]\n", nm, nr);
 	if (nm < nr) {
-		start += nm << PAGE_SHIFT; 
-		pages += nm; 
+		start += nm << PAGE_SHIFT;
+		pages += nm;
 		if (down_read_trylock(&t->mm->mmap_sem)) {
-			ret = get_user_pages(t, t->mm, 
+			ret = get_user_pages(t, t->mm,
 					start,
-					(end - start) >> PAGE_SHIFT, 
-					0, 0, pages, NULL); 
-			up_read(&t->mm->mmap_sem); 
+					(end - start) >> PAGE_SHIFT,
+					0, 0, pages, NULL);
+			up_read(&t->mm->mmap_sem);
 		}
 	}
-	STING_DBG("get_user_pages: [%d out of %d]\n", ret, nr); 
+	STING_DBG("get_user_pages: [%d out of %d]\n", ret, nr);
 
 	if (nm > 0) {
 		if (ret < 0)
-			ret = nm; 
+			ret = nm;
 		else
-			ret += nm; 
+			ret += nm;
 	}
-	STING_DBG("total: [%d out of %d]\n", ret, nr); 
+	STING_DBG("total: [%d out of %d]\n", ret, nr);
 
-	if (nr != nm) 
-		STING_DBG("Pinned pages less than requested: " 
-				"%d out of %d! [%s at %lx]\n", 
-			nm, nr, current->comm, start); 
+	if (nr != nm)
+		STING_DBG("Pinned pages less than requested: "
+				"%d out of %d! [%s at %lx]\n",
+			nm, nr, current->comm, start);
 
-	return ret; 
+	return ret;
 }
 
 void put_user_pages_range(struct page **pgs, unsigned long sz)
 {
-	int i; 
+	int i;
 	for (i = 0; i < sz; i++)
-		put_page(pgs[i]); 
-	kfree(pgs); 
+		put_page(pgs[i]);
+	kfree(pgs);
 }
 
 #define EHDR(n) ((struct elfhdr *) n)
 #define SHDR(n) ((struct elf_shdr *) n)
 
 /**
- * get_eh_section() - Pointer to ELF eh_frame_hdr + eh_frame sections. 
+ * get_eh_section() - Pointer to ELF eh_frame_hdr + eh_frame sections.
  * @vma:		VM area where code is mapped in
  *
  * Caller has to free allocated buffer
  */
 
-unsigned long get_eh_section(struct vm_area_struct *vma, unsigned long *eh_start) 
+unsigned long get_eh_section(struct vm_area_struct *vma, unsigned long *eh_start)
 {
-	struct elfhdr *ehdr, *ehdr_buf; 
-	struct elf_phdr *phdr = NULL, *phdr_buf = NULL; 
-	int i = 0, ret = 0; 
-	unsigned long len = 0; 
+	struct elfhdr *ehdr, *ehdr_buf;
+	struct elf_phdr *phdr = NULL, *phdr_buf = NULL;
+	int i = 0, ret = 0;
+	unsigned long len = 0;
 
 	/* Code for fde Taken from kernel/dwarf-fde.c */
-	uint64_t u64val; 
-	uint32_t u32val; 
+	uint64_t u64val;
+	uint32_t u32val;
 
 	char *tp = NULL;
 
 	ehdr = (struct elfhdr *) vma->vm_start;
-	STING_DBG("exec start: [%s at %p]\n", current->comm, ehdr); 
+	STING_DBG("exec start: [%s at %p]\n", current->comm, ehdr);
 
-	/* TODO: Should we convert copy_from_user to get_user_pages? 
+	/* TODO: Should we convert copy_from_user to get_user_pages?
 	 		If so, we won't know eh_frame section length beforehand. */
 	ehdr_buf = (struct elfhdr *) kmalloc(sizeof(struct elfhdr), GFP_ATOMIC);
 	if (!ehdr_buf) {
-		STING_ERR(1, "struct elfhdr alloc failed!\n"); 
-		ret = -ENOMEM; 
-		goto fail; 
+		STING_ERR(1, "struct elfhdr alloc failed!\n");
+		ret = -ENOMEM;
+		goto fail;
 	}
 
-	ret = __copy_from_user_inatomic(ehdr_buf, (void *)ehdr, sizeof(struct elfhdr)); 
+	ret = __copy_from_user_inatomic(ehdr_buf, (void *)ehdr, sizeof(struct elfhdr));
 	if (ret != 0) {
-		STING_ERR(1, "struct elfhdr copy failed!\n"); 
-		ret = -ENOMEM; 
-		goto fail; 
+		STING_ERR(1, "struct elfhdr copy failed!\n");
+		ret = -ENOMEM;
+		goto fail;
 	}
 
 	if (memcmp(ehdr_buf->e_ident, ELFMAG, SELFMAG) != 0) {
-		ret = -EINVAL; 
-		goto fail; 
+		ret = -EINVAL;
+		goto fail;
 	}
 
-	phdr = (struct elf_phdr *) ((void *) ehdr + ehdr->e_phoff); 
+	phdr = (struct elf_phdr *) ((void *) ehdr + ehdr->e_phoff);
 	phdr_buf = (struct elf_phdr *) kmalloc(ehdr->e_phentsize * ehdr->e_phnum, GFP_ATOMIC);
 
 	if (!phdr) {
 		STING_ERR(1, "struct elf_phdr alloc failed!\n");
-		ret = -ENOMEM; 
-		goto fail; 
+		ret = -ENOMEM;
+		goto fail;
 	}
-	ret = copy_from_user(phdr_buf, (void *) phdr, 
+	ret = copy_from_user(phdr_buf, (void *) phdr,
 			ehdr_buf->e_phentsize * ehdr_buf->e_phnum);
 	if (ret != 0) {
 		STING_ERR(1, "struct elf_phdr copy failed!\n");
-		ret = -ENOMEM; 
-		goto fail; 
+		ret = -ENOMEM;
+		goto fail;
 	}
 
-	/* Search for the needed section */	
+	/* Search for the needed section */
 	for (i = 1; i < ehdr_buf->e_phnum; i++) {
 		if (phdr_buf[i].p_type == PT_GNU_EH_FRAME) {
-			/* The length to be copied should be calculated based on 
+			/* The length to be copied should be calculated based on
 			   eh_frame also -- traverse its records till you reach NOP */
-			*eh_start = (unsigned long) ((char *) ehdr + phdr_buf[i].p_offset); 
-			len += phdr_buf[i].p_filesz; 
+			*eh_start = (unsigned long) ((char *) ehdr + phdr_buf[i].p_offset);
+			len += phdr_buf[i].p_filesz;
 
-			/* Get start of eh_frame */	
-			tp = ((char *) (ehdr)) + phdr_buf[i].p_offset + len; 
+			/* Get start of eh_frame */
+			tp = ((char *) (ehdr)) + phdr_buf[i].p_offset + len;
 
 			/* Go through each CIE and FDE, */
 			while (1) {
 				if (copy_from_user(&u32val, tp, sizeof(uint32_t)) != 0) {
-					STING_ERR(1, "copy_from_user32 failed [%s at %p]\n", current->comm, tp); 
-					ret = -ENOMEM; 
-					goto fail; 
+					STING_ERR(1, "copy_from_user32 failed [%s at %p]\n", current->comm, tp);
+					ret = -ENOMEM;
+					goto fail;
 				}
-				tp += sizeof(uint32_t); 
-				len += sizeof(uint32_t); 
-				if (u32val == 0) 
-					break; 
+				tp += sizeof(uint32_t);
+				len += sizeof(uint32_t);
+				if (u32val == 0)
+					break;
 				else if (u32val != 0xffffffff) {
-					tp += u32val; 
-					len += u32val; 
+					tp += u32val;
+					len += u32val;
 				} else {
 					if (copy_from_user(&u64val, tp, sizeof(uint64_t)) != 0) {
-						STING_ERR(1, "copy_from_user64 failed [%s at %p]\n", current->comm, tp); 
-						ret = -ENOMEM; 
-						goto fail; 
+						STING_ERR(1, "copy_from_user64 failed [%s at %p]\n", current->comm, tp);
+						ret = -ENOMEM;
+						goto fail;
 					}
-					tp += sizeof(uint64_t); 
-					tp += u64val; 
-					len += sizeof(uint64_t); 
-					len += u64val; 
+					tp += sizeof(uint64_t);
+					tp += u64val;
+					len += sizeof(uint64_t);
+					len += u64val;
 				}
 			}
-			break; 
+			break;
 		}
 	}
 fail:
-	
+
 	if (ehdr_buf)
 		kfree(ehdr_buf);
 	if (phdr_buf)
-		kfree(phdr_buf); 
+		kfree(phdr_buf);
 	if (ret < 0)
-		len = 0; 
-	return len; 
+		len = 0;
+	return len;
 }
 
-/* find_vma returns the first vma where ip < vma->vm_end. We 
+/* find_vma returns the first vma where ip < vma->vm_end. We
    also need ip >= vma->vm_start */
 
 struct vm_area_struct *find_in_vma(struct mm_struct *mm, unsigned long ip)
 {
 	struct vm_area_struct *vma = NULL;
-	vma = find_vma(mm, ip); 
+	vma = find_vma(mm, ip);
 	if (vma == NULL || ip < vma->vm_start)
-		vma = NULL; 
-	return vma; 
+		vma = NULL;
+	return vma;
 }
 
 static inline void dump_memory_areas(struct task_struct *t)
 {
-	unsigned long addr = 0; 
-	struct vm_area_struct *vma = NULL; 
-	struct file *file = NULL; 
-	char *name = NULL; 
+	unsigned long addr = 0;
+	struct vm_area_struct *vma = NULL;
+	struct file *file = NULL;
+	char *name = NULL;
 	char *buf = (char *)__get_free_page(GFP_KERNEL);
 
-	STING_DBG("memory dump for [%s]:\n", t->comm); 
+	STING_DBG("memory dump for [%s]:\n", t->comm);
 	for (vma = find_vma(t->mm, addr); vma; vma = vma->vm_next) {
-		file = vma->vm_file; 
+		file = vma->vm_file;
 		if (file) {
-			name = vma->vm_file->f_path.dentry->d_iname; 
+			name = vma->vm_file->f_path.dentry->d_iname;
 		} else {
 			name = (char *) arch_vma_name(vma);
 			if (!name) {
@@ -438,159 +438,159 @@ static inline void dump_memory_areas(struct task_struct *t)
 					if ((vma->vm_start <= t->mm->start_stack &&
 						vma->vm_end >= t->mm->start_stack)) {
 						name = "[stack]";
-					} 				
+					}
 				}
 			}
 		}
 done:
-		STING_DBG("%lx-%lx\t\t%s\n", vma->vm_start, vma->vm_end, name); 
+		STING_DBG("%lx-%lx\t\t%s\n", vma->vm_start, vma->vm_end, name);
 	}
-	free_page((unsigned long) buf); 
+	free_page((unsigned long) buf);
 }
 
 static inline int stack_guard_page(struct vm_area_struct *vma, unsigned long addr)
 {
-	return ((vma->vm_start <= addr) && (vma->vm_start + PAGE_SIZE > addr)); 
+	return ((vma->vm_start <= addr) && (vma->vm_start + PAGE_SIZE > addr));
 }
 
 int is_stack_ip(struct vm_area_struct *vma, unsigned long ip, struct task_struct *t)
 {
-	unsigned long start; 
+	unsigned long start;
 	if (!(vma->vm_start <= t->mm->start_stack &&
 		vma->vm_end >= t->mm->start_stack)) {
-		STING_ERR(2, "sp not within stack\n"); 
-		return -EINVAL; 
+		STING_ERR(2, "sp not within stack\n");
+		return -EINVAL;
 	}
 
-	start = vma->vm_start; 
+	start = vma->vm_start;
 	if (stack_guard_page(vma, ip)) {
-		STING_ERR(1, "sp in guard page! [%lx]\n", ip); 
-		return -EINVAL; 
+		STING_ERR(1, "sp in guard page! [%lx]\n", ip);
+		return -EINVAL;
 	}
-	return 0; 
+	return 0;
 }
 
 int is_exec_ip(struct vm_area_struct *vma, unsigned long ip, struct task_struct *t)
 {
 	if (!(vma->vm_flags & VM_EXEC))
-		return -EINVAL; 
-	return 0; 
+		return -EINVAL;
+	return 0;
 }
 
 struct vm_area_struct *vma_if_exec_ip(unsigned long ip, struct task_struct *t)
 {
-	struct vm_area_struct *vma = NULL; 
-	int ret = 0; 
+	struct vm_area_struct *vma = NULL;
+	int ret = 0;
 
-	vma = find_in_vma(t->mm, ip); 
+	vma = find_in_vma(t->mm, ip);
 	if (vma == NULL) {
-		STING_ERR(2, "exec vma not found: [%s]\n", t->comm); 
-		ret = -ENOENT; 
-		goto fail; 
-	} 
+		STING_ERR(2, "exec vma not found: [%s]\n", t->comm);
+		ret = -ENOENT;
+		goto fail;
+	}
 
-	ret = is_exec_ip(vma, ip, t); 
-	if (ret < 0) 
-		STING_ERR(2, "[%lx] not executable: [%s]\n", (unsigned long) ip, t->comm); 
-
-fail: 
+	ret = is_exec_ip(vma, ip, t);
 	if (ret < 0)
-		return ERR_PTR(ret); 
-	return vma; 
-}
-EXPORT_SYMBOL(vma_if_exec_ip); 
-
-struct vm_area_struct *vma_if_stack_ip(unsigned long ip, struct task_struct *t)
-{
-	struct vm_area_struct *vma = NULL; 
-	int ret = 0; 
-
-	vma = find_in_vma(t->mm, ip); 
-	if (vma == NULL) {
-		STING_ERR(1, "stack vma not found: [%s]\n", t->comm); 
-		ret = -ENOENT; 
-		goto fail; 
-	} 
-
-	ret = is_stack_ip(vma, ip, t); 
-	if (ret < 0) 
-		STING_ERR(1, "[%lx] not in stack: [%s]\n", (unsigned long) ip, t->comm); 
+		STING_ERR(2, "[%lx] not executable: [%s]\n", (unsigned long) ip, t->comm);
 
 fail:
 	if (ret < 0)
-		return ERR_PTR(ret); 
-	return vma; 
+		return ERR_PTR(ret);
+	return vma;
 }
-EXPORT_SYMBOL(vma_if_stack_ip); 
+EXPORT_SYMBOL(vma_if_exec_ip);
+
+struct vm_area_struct *vma_if_stack_ip(unsigned long ip, struct task_struct *t)
+{
+	struct vm_area_struct *vma = NULL;
+	int ret = 0;
+
+	vma = find_in_vma(t->mm, ip);
+	if (vma == NULL) {
+		STING_ERR(1, "stack vma not found: [%s]\n", t->comm);
+		ret = -ENOENT;
+		goto fail;
+	}
+
+	ret = is_stack_ip(vma, ip, t);
+	if (ret < 0)
+		STING_ERR(1, "[%lx] not in stack: [%s]\n", (unsigned long) ip, t->comm);
+
+fail:
+	if (ret < 0)
+		return ERR_PTR(ret);
+	return vma;
+}
+EXPORT_SYMBOL(vma_if_stack_ip);
 
 #define IS_BIN_VMA(t, vma) ( \
-				(t->mm->exe_file->f_dentry->d_inode->i_ino == \
-				vma->vm_file->f_dentry->d_inode->i_ino) \
-		) 
+				((vma->vm_file) && (t->mm->exe_file->f_dentry->d_inode->i_ino == \
+				vma->vm_file->f_dentry->d_inode->i_ino)) \
+		)
 
-static void update_us(struct task_struct *t, struct vm_area_struct *vma, 
+static void update_us(struct task_struct *t, struct vm_area_struct *vma,
 		unsigned long ip)
 {
-	struct user_stack_info *us; 
-	int c; 
-	ino_t vma_inode; 
+	struct user_stack_info *us;
+	int c;
+	ino_t vma_inode;
 
 	if (!vma->vm_file)
-		return; 
-	vma_inode = vma->vm_file->f_dentry->d_inode->i_ino; 
-	us = &(t->user_stack); 
-	c = us->trace.nr_entries; 
+		return;
+	vma_inode = vma->vm_file->f_dentry->d_inode->i_ino;
+	us = &(t->user_stack);
+	c = us->trace.nr_entries;
 
 	/* Do not fill first IP in next VMA region */
-	if (ip < vma->vm_start || ip > vma->vm_end) 
-		return; 
+	if (ip < vma->vm_start || ip > vma->vm_end)
+		return;
 
-	us->trace.entries[c] = ip; 
+	us->trace.entries[c] = ip;
 	if (t->mm->exe_file->f_dentry->d_inode->i_ino == vma_inode) {
 		/* Program entry */
 		if (!us->bin_ip_exists) {
 			/* First program entry */
-			us->ept_ind = c; 
-			us->bin_ip_exists = 1; 
+			us->ept_ind = c;
+			us->bin_ip_exists = 1;
 		}
 	} else if (vma_inode == ld_inode) {
 		/* Dynamic loader/linker */
-		us->ept_ind = c; 
-		us->bin_ip_exists = 0; 
+		us->ept_ind = c;
+		us->bin_ip_exists = 0;
 	} else if (ld_inode == -1 && us->bin_ip_exists == 0) {
-		/* Before ld_inode is loaded, assume any IP as loader IP 
+		/* Before ld_inode is loaded, assume any IP as loader IP
 		 * if program IP doesn't exist, to avoid errors later */
-		us->ept_ind = c; 
-		us->bin_ip_exists = 0; 
-	}	
+		us->ept_ind = c;
+		us->bin_ip_exists = 0;
+	}
 	/* VMA start and inode */
-	us->vma_inoden[c] = vma_inode; 
-	us->vma_start[c] = vma->vm_start; 
-	us->trace.nr_entries++; 
+	us->vma_inoden[c] = vma_inode;
+	us->vma_start[c] = vma->vm_start;
+	us->trace.nr_entries++;
 }
 
 static void vma_start_ino(struct task_struct *t)
 {
-	struct user_stack_info *us = &(t->user_stack); 
-	struct vm_area_struct *vma; 
-	int i = 0; 
-	unsigned long ip; 
+	struct user_stack_info *us = &(t->user_stack);
+	struct vm_area_struct *vma;
+	int i = 0;
+	unsigned long ip;
 
-	for (i = 0; i < us->trace.nr_entries; i++) {
-		ip = us->trace.entries[i]; 
+	for (i = 0; i < us->trace.max_entries; i++) {
+		ip = us->trace.entries[i];
 		if (ip == ULONG_MAX) {
-			us->trace.nr_entries = i; 
-			break; 
+			us->trace.nr_entries = i;
+			break;
 		}
-		vma = find_in_vma(t->mm, ip); 
+		vma = find_in_vma(t->mm, ip);
 		if (vma == NULL || vma->vm_file == NULL) {
-			us->trace.nr_entries = i; 
-			break; 
+			us->trace.nr_entries = i;
+			break;
 		}
-		update_us(t, vma, ip); 
+		update_us(t, vma, ip);
 	}
 
-	return; 
+	return;
 }
 
 struct stack_frame_user {
@@ -652,7 +652,7 @@ void static_save_stack_trace_user(struct static_stack_trace *trace)
 	}
 	if (trace->nr_entries == 1) {
 		/* Garbage IP */
-		trace->nr_entries--; 
+		trace->nr_entries--;
 	}
 	if (trace->nr_entries < trace->max_entries)
 		trace->entries[trace->nr_entries++] = ULONG_MAX;
@@ -660,10 +660,10 @@ void static_save_stack_trace_user(struct static_stack_trace *trace)
 
 static inline void us_init(struct user_stack_info *us)
 {
-	us->trace.nr_entries = 0; 
-	us->trace.max_entries = USER_STACK_MAX; 
-	us->bin_ip_exists = 0; 
-	us->ept_ind = 0; 
+	us->trace.nr_entries = 0;
+	us->trace.max_entries = USER_STACK_MAX;
+	us->bin_ip_exists = 0;
+	us->ept_ind = 0;
 }
 
 #define CHECK_PRINT_EXIT(f) { \
@@ -677,134 +677,136 @@ static inline void us_init(struct user_stack_info *us)
  * user_unwind() - Use eh_frame to unwind user stack
  * @t:		Task struct
  *
- * Any trace should go back up to loader or program binary. 
- * Successful run can be detected by checking if 
- * t->user_stack.ept_ind is -1 or not. 
- * 
- * Do NOT call this function in improper contexts - 
- * !t->mm, in_atomic(), in_irq(), in_interrupt(), irqs_disabled()
- * Call it only in process contexts with a userspace mm. 
+ * Any trace should go back up to loader or program binary.
+ * Successful run can be detected by checking if
+ * t->user_stack.ept_ind is -1 or not.
  *
- * Invariants: 
+ * Do NOT call this function in improper contexts -
+ * !t->mm, in_atomic(), in_irq(), in_interrupt(), irqs_disabled()
+ * Call it only in process contexts with a userspace mm.
+ *
+ * Invariants:
  * 	On exit, trace.entries[nr_entries - 1] = ULONG_MAX and
- * 	each trace.entries has a valid VMA. 
+ * 	each trace.entries has a valid VMA.
  *
  */
 
 void user_unwind(struct task_struct *t)
 {
 	struct unw_t unw;
-	struct eh_table_data ed; 
-	struct vm_area_struct *vma; 
-	unsigned long eh_start, eh_len; 
-	struct page **eh_frame_pgs = NULL; 
-	struct page **stack_pgs = NULL; 
-	int np_ehf, np_st, ret = 0; 
-	struct pt_regs regs; 
-	unsigned long stack_start, stack_end; 
-	struct user_stack_info *us = &(t->user_stack); 
-	
-	us_init(&(t->user_stack)); 
+	struct eh_table_data ed;
+	struct vm_area_struct *vma;
+	unsigned long eh_start, eh_len;
+	struct page **eh_frame_pgs = NULL;
+	struct page **stack_pgs = NULL;
+	int np_ehf, np_st, ret = 0;
+	struct pt_regs regs;
+	unsigned long stack_start, stack_end;
+	struct user_stack_info *us = &(t->user_stack);
+
+	us_init(&(t->user_stack));
 
 	/* Initialize first frame from kernel stack */
-	STING_DBG("\n==========================\n"); 
-	memcpy(&unw.regs, task_pt_regs(t), sizeof(unw.regs)); 
+	STING_DBG("\n==========================\n");
+	memcpy(&unw.regs, task_pt_regs(t), sizeof(unw.regs));
 
 	/* The CFA for hte first frame is the stack pointer */
-	unw.cfa = task_pt_regs(t)->sp; 
+	unw.cfa = task_pt_regs(t)->sp;
 
 	/* Debug: Print memory layout */
-	if (STING_DBG_ON) 
-		dump_memory_areas(t); 
-	
+	if (STING_DBG_ON)
+		dump_memory_areas(t);
+
 	/* Map in the stack */
-	vma = vma_if_stack_ip(unw.cfa, t); 
+	vma = vma_if_stack_ip(unw.cfa, t);
 	if (IS_ERR(vma)) {
 		/* Stack not found? */
-		goto end; 
+		goto end;
 	}
-	stack_start = unw.regs.sp; 
-	stack_end = vma->vm_end; 
+	stack_start = unw.regs.sp;
+	stack_end = vma->vm_end;
 
 	/* Pin stack pages */
-	np_st = get_user_pages_range(t, vma->vm_start, (unw.cfa - vma->vm_start + 1), &stack_pgs); 
+	np_st = get_user_pages_range(t, vma->vm_start, (unw.cfa - vma->vm_start + 1), &stack_pgs);
 
 	do {
-		vma = vma_if_exec_ip(unw.regs.ip, t); 
+		vma = vma_if_exec_ip(unw.regs.ip, t);
 		if (IS_ERR(vma)) {
 			/* Kernel thread, not executable, or legitimate end */
-			goto fail_put_stack_pages; 
+			goto fail_put_stack_pages;
 		}
-		STING_DBG("VMA start: [%s, %lx]\n", t->comm, vma->vm_start); 
-		eh_len = get_eh_section(vma, &eh_start); 
+		STING_DBG("VMA start: [%s, %lx]\n", t->comm, vma->vm_start);
+		eh_len = get_eh_section(vma, &eh_start);
 		if (eh_len == 0) {
 			/* If only the binary itself doesn't have eh_frame, we can still get ept_ind */
-			if (t->user_stack.trace.nr_entries > 0 && IS_BIN_VMA(t, vma) && 
+			if (t->user_stack.trace.nr_entries > 0 && IS_BIN_VMA(t, vma) &&
 				(t->user_stack.trace.nr_entries < t->user_stack.trace.max_entries)) {
-				update_us(t, vma, unw.regs.ip); 
+				update_us(t, vma, unw.regs.ip);
 			} else {
 				/* Else, do a full normal stack trace */
-				STING_ERR(2, "No eh_frame_hdr section, " 
-					"reverting to normal trace: [%s]\n", t->comm); 
-				static_save_stack_trace_user(&(t->user_stack.trace)); 
-				vma_start_ino(t); 
+
+				STING_ERR(2, "No eh_frame_hdr section, "
+					"reverting to normal trace: [%s]\n", t->comm);
+				us_init(&(t->user_stack));
+				static_save_stack_trace_user(&(t->user_stack.trace));
+				vma_start_ino(t);
 			}
-			goto fail_put_stack_pages; 
+			goto fail_put_stack_pages;
 		}
-		STING_DBG("eh_frame length: [%s, %lx]\n", t->comm, eh_len); 
+		STING_DBG("eh_frame length: [%s, %lx]\n", t->comm, eh_len);
 
 		/* Pin eh_frame program header pages */
-		np_ehf = get_user_pages_range(t, eh_start, eh_len, &eh_frame_pgs); 
-		eh_frame_data((char *) eh_start, &ed); 
+		np_ehf = get_user_pages_range(t, eh_start, eh_len, &eh_frame_pgs);
+		eh_frame_data((char *) eh_start, &ed);
 
 		do {
 			if (STING_DBG_ON)
-				__show_unw_regs(&unw); 
+				__show_unw_regs(&unw);
 
 			/* Before each virtual unwind step, check
 			   validity of previous step's stack pointer */
 			if (!(unw.regs.sp >= stack_start && unw.regs.sp < stack_end))
-				goto fail_put_region_pages; 
-			unw_regs(&unw, &regs); 
+				goto fail_put_region_pages;
+			unw_regs(&unw, &regs);
 
 			/* Update IP in user stack trace */
-			update_us(t, vma, unw.regs.ip); 
+			update_us(t, vma, unw.regs.ip);
 
 		} while (((ret = unw_step(&unw, &ed, stack_end, stack_start)) == 0) &&
-					(us->trace.nr_entries <= us->trace.max_entries)); 
+					(us->trace.nr_entries <= us->trace.max_entries));
 
-		/* If unw_step failed because of anything other than 
+		/* If unw_step failed because of anything other than
 			eh_frame_hdr lookup (-ENOENT), break out. -ENOENT is
-			ok, as it signifies the next VMA region for stack IPs. 
+			ok, as it signifies the next VMA region for stack IPs.
 			-ENOENT is returned only by lookup(). */
 		if (ret != -ENOENT)
-			goto fail_put_region_pages; 
+			goto fail_put_region_pages;
 		/* Release pinned pages */
-		put_user_pages_range(eh_frame_pgs, np_ehf); 
-	} while (1); 
+		put_user_pages_range(eh_frame_pgs, np_ehf);
+	} while (1);
 
 fail_put_region_pages:
-	put_user_pages_range(eh_frame_pgs, np_ehf); 
+	put_user_pages_range(eh_frame_pgs, np_ehf);
 fail_put_stack_pages:
-	put_user_pages_range(stack_pgs, np_st); 
+	put_user_pages_range(stack_pgs, np_st);
 end:
-	STING_DBG("\n==========================\n"); 
+	STING_DBG("\n==========================\n");
 	/* pfwall-specific: Fill last entry */
 	if (us->trace.nr_entries < us->trace.max_entries)
-		us->trace.entries[us->trace.nr_entries++] = ULONG_MAX; 
+		us->trace.entries[us->trace.nr_entries++] = ULONG_MAX;
 
-	return; 
+	return;
 }
-EXPORT_SYMBOL(user_unwind); 
+EXPORT_SYMBOL(user_unwind);
 
 static int __init user_unwind_init(void)
 {
-	struct dentry *ld_inode_dentry; 
+	struct dentry *ld_inode_dentry;
 	ld_inode_dentry = debugfs_create_file("pft_ld_inode_num", 0600, NULL, NULL, &pft_ld_inode_fops);
 
 	if (!ld_inode_dentry) {
 		STING_ERR(1, "Unable to create pft_ld_inode_num\n");
 	}
-	return 0; 
+	return 0;
 }
-fs_initcall(user_unwind_init); 
+fs_initcall(user_unwind_init);
