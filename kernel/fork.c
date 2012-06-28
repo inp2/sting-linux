@@ -68,7 +68,6 @@
 #include <linux/oom.h>
 #include <linux/khugepaged.h>
 #include <linux/signalfd.h>
-#include <linux/sting.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
