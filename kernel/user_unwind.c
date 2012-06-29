@@ -686,9 +686,11 @@ static inline void us_init(struct user_stack_info *us)
  * Call it only in process contexts with a userspace mm.
  *
  * Invariants:
- * 	On exit, trace.entries[nr_entries - 1] = ULONG_MAX and
- * 	each trace.entries has a valid VMA.
- *
+ * 	On exit, if (nr_entries < max_entries) then
+ * 	trace.entries[nr_entries - 1] = ULONG_MAX.
+ *  Each trace.entries up to trace.entries[nr_entries - 1]
+ *  has a valid VMA. If nr_entries == 1 (=> ULONG_MAX),
+ *  user stack completely invalid.
  */
 
 void user_unwind(struct task_struct *t)
@@ -710,7 +712,7 @@ void user_unwind(struct task_struct *t)
 	STING_DBG("\n==========================\n");
 	memcpy(&unw.regs, task_pt_regs(t), sizeof(unw.regs));
 
-	/* The CFA for hte first frame is the stack pointer */
+	/* The CFA for the first frame is the stack pointer */
 	unw.cfa = task_pt_regs(t)->sp;
 
 	/* Debug: Print memory layout */
@@ -773,7 +775,7 @@ void user_unwind(struct task_struct *t)
 			update_us(t, vma, unw.regs.ip);
 
 		} while (((ret = unw_step(&unw, &ed, stack_end, stack_start)) == 0) &&
-					(us->trace.nr_entries <= us->trace.max_entries));
+					(us->trace.nr_entries < us->trace.max_entries));
 
 		/* If unw_step failed because of anything other than
 			eh_frame_hdr lookup (-ENOENT), break out. -ENOENT is

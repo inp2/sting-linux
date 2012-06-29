@@ -12,6 +12,7 @@
 #include "ept_dict.h"
 #include "permission.h"
 #include "syscalls.h"
+#include "launch_attack.h"
 
 /* sting_log file */
 
@@ -141,8 +142,8 @@ static int check_valid_user_context(struct task_struct *t)
 	if (sting_monitor_pid != -1 && t->pid != sting_monitor_pid)
 		goto fail;
 	/* request originating inside sting */
-//	if (t->sting_request)
-//		goto fail;
+	if (t->sting_request)
+		goto fail;
 	if (in_atomic() || in_irq() || in_interrupt() || irqs_disabled())
 		goto fail;
 
@@ -152,14 +153,26 @@ fail:
 	return 0;
 }
 
-static inline int ept_inode_get(struct user_stack_info *us)
+/* TODO: Below three functions should be in user_unwind.h */
+
+static inline ino_t ept_inode_get(struct user_stack_info *us)
 {
 	return us->vma_inoden[us->ept_ind];
 }
 
-static inline int ept_offset_get(struct user_stack_info *us)
+static unsigned long ept_offset_get(struct user_stack_info *us)
 {
+	if (us->vma_inoden[us->ept_ind] == 263144) {
+		printk(KERN_INFO STING_MSG "[%lx] - [%lx] = [%lx]\n",
+		us->trace.entries[us->ept_ind], us->vma_start[us->ept_ind],
+		us->trace.entries[us->ept_ind] - us->vma_start[us->ept_ind]);
+	}
 	return us->trace.entries[us->ept_ind] - us->vma_start[us->ept_ind];
+}
+
+static inline int valid_user_stack(struct user_stack_info *us)
+{
+	return (us->trace.entries[0] != ULONG_MAX);
 }
 
 void sting_syscall_begin(void)
@@ -181,6 +194,8 @@ void sting_syscall_begin(void)
 
 	/* get entrypoint (if performance needed, do this after adversary check) */
 	user_unwind(current);
+	if (!valid_user_stack(&current->user_stack))
+		goto end;
 
 	/* adversary check */
 	adv_uid_ind = sting_get_adversary(fname, ATTACKER_BIND);
@@ -208,6 +223,7 @@ void sting_syscall_begin(void)
 		goto end;
 	}
 
+	sting_launch_attack(fname, adv_uid_ind, SYMLINK);
 
 #if 0
 	if (sting_valid_adversary(adv_uid_ind))
