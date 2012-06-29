@@ -1,6 +1,6 @@
 struct ept_dict_key {
 	ino_t ino;
-	int offset;
+	unsigned long offset;
 };
 
 struct ept_dict_val {

@@ -165,7 +165,7 @@ static void ept_dict_f_total(struct dict_entry *e, void *pd)
 static void ept_dict_f_print(struct dict_entry *e, void *pd)
 {
 	struct ept_dict_entry *et = (struct ept_dict_entry *) e;
-	STING_LOG("key: [%d,%d] value: [%d,%d]\n", (int) et->key.ino,
+	STING_LOG("key: [%lu,%lx] value: [%d,%d]\n", (unsigned long) et->key.ino,
 		et->key.offset, et->val.adversary_access, et->val.attack_history);
 }
 
