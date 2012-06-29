@@ -16,3 +16,6 @@ static inline int sting_valid_adversary(int adv_uid_ind)
 }
 
 extern int sting_get_adversary(const char *fname, int flags);
+struct cred *set_creds(uid_t *ug_list); 
+
+extern uid_t uid_array[MAX_USERS][GRP_MEMB_MAX];
