@@ -21,6 +21,14 @@
 			} \
 	} while (0)
 
+#define STING_SYSCALL(call) { \
+	set_fs(KERNEL_DS); \
+	current->sting_request++; \
+	call; \
+	current->sting_request--; \
+	set_fs(old_fs); \
+}
+
 extern void sting_syscall_begin(void);
 
 /* Logging */
@@ -31,17 +39,19 @@ extern struct rchan *sting_log_rchan;
 	char *log_str = NULL; \
 	log_str = kasprintf(GFP_ATOMIC, __VA_ARGS__); \
 	if (log_str) { \
+		current->sting_request++; \
 		relay_write(sting_log_rchan, log_str, strlen(log_str) + 1); \
+		current->sting_request--; \
 		kfree(log_str); \
 	} \
 }
 
-//		current->sting_request++;
-//		current->sting_request--;
 
 #define STING_LOG_ALLOCED(s) { \
 	if (s) { \
+		current->sting_request++; \
 		relay_write(sting_log_rchan, s, strlen(s) + 1); \
+		current->sting_request--; \
 		kfree(log_str); \
 	} \
 }

@@ -1627,6 +1627,7 @@ struct task_struct {
 	struct user_stack_info user_stack; 
     unsigned long *sting_pending; 
     int sting_pending_nr; 
+	int sting_request; 
 #endif
 };
 
