@@ -1,3 +1,7 @@
+#include <linux/types.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+
 #define STING_MSG "sting: "
 
 #define STING_MAX_PENDING 16
@@ -31,7 +35,7 @@
 
 extern void sting_syscall_begin(void);
 
-/* Logging */
+/* logging */
 
 #define STING_LOG_FILE "sting_log"
 extern struct rchan *sting_log_rchan;
@@ -55,3 +59,22 @@ extern struct rchan *sting_log_rchan;
 		kfree(log_str); \
 	} \
 }
+
+/* current attacks (stings) */
+
+struct sting {
+	struct list_head list; 
+	pid_t pid; 
+	ino_t ino; 
+	unsigned long offset; 
+	struct dentry *dentry; 
+	int attack_type; 
+}; 
+
+#define MATCH_PID 		0x1
+#define MATCH_EPT 		0x2
+#define MATCH_DENTRY 	0x4
+
+// extern void sting_list_add(struct sting *st); 
+// extern void sting_list_del(struct sting *st); 
+// extern struct sting *sting_list_get(struct sting *st, int flags); 

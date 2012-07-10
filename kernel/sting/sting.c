@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/relay.h>
 #include <linux/debugfs.h>
+#include <linux/types.h>
 
 #include <asm-generic/current.h>
 
@@ -13,6 +14,8 @@
 #include "permission.h"
 #include "syscalls.h"
 #include "launch_attack.h"
+#include "utility.h"
+#include "shadow_resolution.h"
 
 /* sting_log file */
 
@@ -119,6 +122,53 @@ static const struct file_operations sting_monitor_pid_fops = {
 	   .read   = sting_monitor_pid_read,
 };
 
+/* list of ongoing attacks (status and rollback information). 
+ * Since the number of attacks is small, a list suffices. 
+ * TODO: If we find scenarios where performance is hit because
+ * of this list, change.  */
+static struct sting sting_list; 
+static DEFINE_RWLOCK(stings_rwlock); 
+
+void sting_list_add(struct sting *st) 
+{
+	unsigned long flags; 
+	write_lock_irqsave(&stings_rwlock, flags); 
+	list_add(&st->list, &sting_list.list); 
+	write_unlock_irqrestore(&stings_rwlock, flags); 
+}
+
+void sting_list_del(struct sting *st)
+{
+	unsigned long flags; 
+	write_lock_irqsave(&stings_rwlock, flags); 
+	list_del(&sting_list.list); 
+	write_unlock_irqrestore(&stings_rwlock, flags); 
+}
+
+struct sting *sting_list_get(struct sting *st, int st_flags)
+{
+	struct sting *t; 
+	unsigned long flags; 
+	read_lock_irqsave(&stings_rwlock, flags); 
+	list_for_each_entry(t, &sting_list.list, list) {
+		if ((st_flags & MATCH_PID) && (t->pid != st->pid))
+			continue; 
+		if ((st_flags & MATCH_EPT) && 
+				((t->ino != st->ino) || (t->offset != st->offset))) 
+			continue; 
+		if ((st_flags & MATCH_DENTRY) && (t->dentry != st->dentry))
+			continue; 
+
+		/* match */
+		read_unlock_irqrestore(&stings_rwlock, flags); 
+		return t; 
+	}
+
+	/* no match */
+	read_unlock_irqrestore(&stings_rwlock, flags); 
+	return NULL;  
+}
+
 static int __init sting_init(void)
 {
 	struct dentry *sting_monitor_pid;
@@ -130,6 +180,9 @@ static int __init sting_init(void)
 	if(!sting_monitor_pid) {
 		printk(KERN_INFO STING_MSG "unable to create sting_monitor_pid\n");
 	}
+
+	/* initialize linked list of ongoing stings */
+	INIT_LIST_HEAD(&sting_list.list); 
 	return 0;
 }
 fs_initcall(sting_init);
@@ -162,11 +215,6 @@ static inline ino_t ept_inode_get(struct user_stack_info *us)
 
 static unsigned long ept_offset_get(struct user_stack_info *us)
 {
-	if (us->vma_inoden[us->ept_ind] == 263144) {
-		printk(KERN_INFO STING_MSG "[%lx] - [%lx] = [%lx]\n",
-		us->trace.entries[us->ept_ind], us->vma_start[us->ept_ind],
-		us->trace.entries[us->ept_ind] - us->vma_start[us->ept_ind]);
-	}
 	return us->trace.entries[us->ept_ind] - us->vma_start[us->ept_ind];
 }
 
@@ -178,32 +226,84 @@ static inline int valid_user_stack(struct user_stack_info *us)
 void sting_syscall_begin(void)
 {
 	char *fname = NULL;
+	struct path fpath; 
 	int adv_uid_ind;
 	struct ept_dict_entry e, *r;
 	int ntest;
+	struct dentry *fdentry; 
+	struct task_struct *t = current; 
+	struct nameidata nd; 
+	int lc = 0 /* last component? */, ctr = 0; 
+	int err; 
 
-	if (!check_valid_user_context(current))
+	if (!check_valid_user_context(t))
 		goto end;
 	/* check if nameres call */
 	fname = get_syscall_fname();
 	if (!fname)
 		goto end;
+	printk(KERN_INFO STING_MSG "fname: [%s]\n", fname); 
 
+	shadow_res_init(AT_FDCWD, fname, 0, &nd); 
+	while (nd.last_type == LAST_BIND || !lc) {
+		lc = shadow_res_advance_name(&fname, &ctr, &nd); 
+		if (lc < 0)
+			goto end; 
+		err = shadow_res_resolve_name(&nd, fname); 
+		if (err < 0)
+			goto end; 
+		// printk(KERN_INFO STING_MSG "shadow_res: %s\n", nd.path.dentry->d_name.name); 
+	}
+	shadow_res_end(&nd); 
+
+	return; 
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
 
-	/* get entrypoint (if performance needed, do this after adversary check) */
-	user_unwind(current);
-	if (!valid_user_stack(&current->user_stack))
+	/* get entrypoint */
+	user_unwind(t);
+	if (!valid_user_stack(&t->user_stack))
 		goto end;
 
+	/* get dentry from filename */
+	fdentry = fname_to_dentry(fname); 
+	if (IS_ERR(fdentry))
+		goto end; 
+
 	/* adversary check */
-	adv_uid_ind = sting_get_adversary(fname, ATTACKER_BIND);
+	adv_uid_ind = sting_get_adversary(fdentry, ATTACKER_BIND);
+	dput(fdentry); 
+
+	/* check if dentry has been used for another test case */
+	if (!check_already_attacked(fname, DONT_FOLLOW)) {
+		/* already in use for another attack. add current
+		 * entrypoint to same attack _if_ in the same 
+		 * process. */
+		struct sting st, *m; 
+		st.pid = t->pid; 
+		m = sting_list_get(&st, MATCH_PID); 
+		if (!m) {
+			printk(KERN_INFO STING_MSG 
+					"unsupported: cross-process sting: %s\n", fname); 
+			goto end; 
+		}
+		memcpy(&st, m, sizeof(struct sting)); 
+		st.pid = t->pid; 
+		st.offset = ept_offset_get(&t->user_stack); 
+		sting_list_add(&st); 
+		STING_LOG("added [%s:%lx] accessing [%s] to sting_list", 
+				t->comm, st.offset, fname); 
+		goto end; 
+	}
+
+	/* check if ept has a pending attack */
+	// if ( ); 
 
 	/* check against ept dictionary */
-	e.key.ino = ept_inode_get(&current->user_stack);
-	e.key.offset = ept_offset_get(&current->user_stack);
+	e.key.ino = ept_inode_get(&t->user_stack);
+	e.key.offset = ept_offset_get(&t->user_stack);
 
+	
 	r = ept_dict_lookup(&e.key);
 	if (r && !r->val.adversary_access &&
 				sting_valid_adversary(adv_uid_ind)) {
@@ -223,15 +323,16 @@ void sting_syscall_begin(void)
 		goto end;
 	}
 
-	sting_launch_attack(fname, adv_uid_ind, SYMLINK);
+	/* TODO: already attacked check */
+	sting_launch_attack(fname, adv_uid_ind, SYMLINK, &fpath);
 
 #if 0
 	if (sting_valid_adversary(adv_uid_ind))
 		/* check retry */
-		if (sting_pending_lookup_ept(current)) {
+		if (sting_pending_lookup_ept(t)) {
 			/* retry => immune to pending attack (if any) */
-			type = sting_pending_get_type(current, r->key.offset);
-			sting_pending_remove_ept(current, r->key.offset);
+			type = sting_pending_get_type(t, r->key.offset);
+			sting_pending_remove_ept(t, r->key.offset);
 			ept_dict_mark_immune(r, (r->value.attack_history) & type);
 		}
 
@@ -241,7 +342,7 @@ void sting_syscall_begin(void)
 			goto end;
 
 		/* update pending */
-		sting_pending_add_ept(current);
+		sting_pending_add_ept(t);
 
 		/* attack! */
 		fuzz_resource(fname, ntest, adv_uid, 0);
