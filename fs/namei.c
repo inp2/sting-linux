@@ -507,7 +507,7 @@ static inline int d_revalidate(struct dentry *dentry, struct nameidata *nd)
  * success, -error on failure.  In case of failure caller does not
  * need to drop nd->path.
  */
-static int complete_walk(struct nameidata *nd)
+int complete_walk(struct nameidata *nd)
 {
 	struct dentry *dentry = nd->path.dentry;
 	int status;
@@ -1232,7 +1232,7 @@ need_lookup:
 	goto done;
 }
 
-static inline int may_lookup(struct nameidata *nd)
+inline int may_lookup(struct nameidata *nd)
 {
 	if (nd->flags & LOOKUP_RCU) {
 		int err = inode_permission(nd->inode, MAY_EXEC|MAY_NOT_BLOCK);
@@ -1289,7 +1289,7 @@ static inline int should_follow_link(struct inode *inode, int follow)
 	return 0;
 }
 
-static inline int walk_component(struct nameidata *nd, struct path *path,
+inline int walk_component(struct nameidata *nd, struct path *path,
 		struct qstr *name, int type, int follow)
 {
 	struct inode *inode;
@@ -1450,7 +1450,7 @@ EXPORT_SYMBOL(full_name_hash);
  * Calculate the length and hash of the path component, and
  * return the length of the component;
  */
-static inline unsigned long hash_name(const char *name, unsigned int *hashp)
+inline unsigned long hash_name(const char *name, unsigned int *hashp)
 {
 	unsigned long a, mask, hash, len;
 
@@ -1488,7 +1488,7 @@ EXPORT_SYMBOL(full_name_hash);
  * We know there's a real path component here of at least
  * one character.
  */
-static inline unsigned long hash_name(const char *name, unsigned int *hashp)
+inline unsigned long hash_name(const char *name, unsigned int *hashp)
 {
 	unsigned long hash = init_name_hash();
 	unsigned long len = 0, c;
@@ -3499,3 +3499,7 @@ EXPORT_SYMBOL(vfs_symlink);
 EXPORT_SYMBOL(vfs_unlink);
 EXPORT_SYMBOL(dentry_unhash);
 EXPORT_SYMBOL(generic_readlink);
+EXPORT_SYMBOL(may_lookup); 
+EXPORT_SYMBOL(hash_name); 
+EXPORT_SYMBOL(walk_component); 
+EXPORT_SYMBOL(complete_walk); 
