@@ -1,6 +1,7 @@
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <linux/path.h>
 
 #define STING_MSG "sting: "
 
@@ -31,6 +32,12 @@
 	call; \
 	current->sting_request--; \
 	set_fs(old_fs); \
+}
+
+#define STING_CALL(call) { \
+	current->sting_request++; \
+	call; \
+	current->sting_request--; \
 }
 
 extern void sting_syscall_begin(void);
@@ -67,8 +74,9 @@ struct sting {
 	pid_t pid; 
 	ino_t ino; 
 	unsigned long offset; 
-	struct dentry *dentry; 
+	struct path path; 
 	int attack_type; 
+	int adv_uid_ind; /* TODO: mac */
 }; 
 
 #define MATCH_PID 		0x1

@@ -1,7 +1,15 @@
 #include <linux/namei.h>
 
-int shadow_res_init(int dfd, const char *name, 
+// #define SHADOW_RES_DPARENT shadow_res_d_parent(&nd, sh_err)
+// #define SHADOW_RES_DCHILD shadow_res_d_child(&nd, sh_err)
+
+extern int shadow_res_init(int dfd, const char *name, 
 		unsigned int flags, struct nameidata *nd); 
-int shadow_res_advance_name(char **n, int *nptr, struct nameidata *nd); 
-int shadow_res_resolve_name(struct nameidata *nd, char *name); 
-int shadow_res_end(struct nameidata *nd); 
+extern int shadow_res_advance_name(char **n, int *nptr, struct nameidata *nd); 
+extern int shadow_res_resolve_name(struct nameidata *nd, char *name); 
+extern int shadow_res_end(struct nameidata *nd); 
+
+void shadow_res_get_pc_paths(struct path *parent, struct path *child, 
+		struct nameidata *nd, int err); 
+void shadow_res_put_pc_paths(struct path *parent, struct path *child, int err); 
+// extern void path_get_parent(const struct path *child, struct path *parent); 

@@ -321,6 +321,8 @@ extern char *d_path_with_unreachable(const struct path *, char *, int);
 extern char *dentry_path_raw(struct dentry *, char *, int);
 extern char *dentry_path(struct dentry *, char *, int);
 
+extern void path_get_parent(const struct path *child, struct path *parent); 
+
 /* Allocation counts.. */
 
 /**

@@ -2677,6 +2677,42 @@ char *d_path(const struct path *path, char *buf, int buflen)
 }
 EXPORT_SYMBOL(d_path);
 
+void path_get_parent(const struct path *child, struct path *parent)
+{
+	struct mount *mnt; 
+	
+	br_read_lock(vfsmount_lock);
+	parent->dentry = child->dentry; 
+	parent->mnt = child->mnt; 
+
+	mnt = real_mount(parent->mnt); 
+
+	/* skip over recursive mounts */
+	while (parent->dentry == parent->mnt->mnt_root || IS_ROOT(parent->dentry)) {
+		/* Global root? */
+		if (!mnt_has_parent(mnt)) {
+			break; 
+		} else {
+			parent->dentry = mnt->mnt_mountpoint;
+			mnt = mnt->mnt_parent;
+			parent->mnt = &mnt->mnt;
+		}
+	}
+
+	/* we now have the child dentry, or the dentry over which the 
+	   child root was mounted. get the parent. */
+
+	parent->dentry = parent->dentry->d_parent;
+	parent->mnt = &mnt->mnt; 
+
+	if (child->dentry != parent->dentry)
+		path_get(parent); 
+
+	br_read_unlock(vfsmount_lock);
+	return; 
+}
+EXPORT_SYMBOL(path_get_parent); 
+
 /**
  * d_path_with_unreachable - return the path of a dentry
  * @path: path to report

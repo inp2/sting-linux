@@ -19,8 +19,98 @@
 #include <linux/posix_acl.h>
 #include <asm/uaccess.h>
 
-/* an iterative version of path lookup, treating all 
- * bindings equally, whether they be final or path. 
+/* given a pointer to the end of the component, get its 
+   beginning */
+static inline int get_curr_start(char *s, int curr)
+{
+	/* if current component is the last one, curr points to 
+	   the NULL after its last character, else curr points to 
+	   one char after that component */
+	int prev = curr - 1; 
+	while (s[prev] == '/' && prev > 0)
+		prev--; 
+	while (s[prev] != '/' && prev > 0)
+		prev--; 
+	if (s[prev] == '/')
+		prev++; 
+	/* point to first character of current component */
+	return prev; 
+}
+
+/* modify component of path given symlink target. 
+   return new position to resolve from */
+int modify_lnk_name(char **orig, int pos, char *lnk)
+{
+	char *tmp; 
+	int prev = 0; 
+	/* for relative paths, does there exist path components
+	   before the current symbolic link? */
+	int is_prefix = 0; 
+	/* for both relative and absolute paths, does there exist 
+	   path components after the current symbolic link? */
+	int	is_suffix = 0; 
+
+	prev = get_curr_start(*orig, pos); 
+
+	is_prefix = (prev > 0); 
+	is_suffix = (*orig)[pos]; 
+
+	if (lnk[0] == '/') {
+		/* absolute */
+		if (is_suffix)
+			tmp = kasprintf(GFP_KERNEL, "%s/%s", lnk, &(*orig)[pos]); 
+		else
+			tmp = kasprintf(GFP_KERNEL, "%s", lnk); 
+		strcpy(*orig, tmp); 
+		kfree(tmp); 
+		return 0; 
+	} else {
+		/* relative */
+		if (!is_prefix && !is_suffix)
+			tmp = kasprintf(GFP_KERNEL, "%s", lnk); 
+		else if (!is_prefix && is_suffix)
+			tmp = kasprintf(GFP_KERNEL, "%s/%s", lnk, &((*orig)[pos])); 
+		else if (is_prefix && !is_suffix) { 
+			(*orig)[prev - 1] = 0; 
+			tmp = kasprintf(GFP_KERNEL, "%s/%s", (*orig), lnk); 
+		} else if (is_prefix && is_suffix) {
+			(*orig)[prev - 1] = 0; 
+			tmp = kasprintf(GFP_KERNEL, "%s/%s/%s", (*orig), lnk, &(*orig)[pos]); 
+		} else 
+			BUG_ON(1); 
+		strncpy(*orig, tmp, PATH_MAX); 
+		kfree(tmp); 
+		return prev; 
+	}
+}
+
+int get_d_path(struct path *path, char **n)
+{
+	char *p, *pathname; 
+	int pos; 
+	/* We will allow 11 spaces for ' (deleted)' to be appended */
+	pathname = kmalloc(PATH_MAX + 11, GFP_KERNEL); 
+	if (!pathname) 
+		return -ENOMEM; 
+
+	p = d_path(path, pathname, PATH_MAX + 11); 
+	if (IS_ERR(p)) {
+		kfree(pathname); 
+		return PTR_ERR(p); 
+	}
+
+	strcpy(*n, p); 
+	pos = strlen(p) - 1; 
+	while (p[pos] != '/')
+		pos--; 
+	kfree(pathname);
+
+	return pos; 
+}
+
+
+/* an iterative version of path lookup based on path_lookupat(), 
+ * treating all bindings equally, whether they be final or path. 
  *
  * this is so we can perform actions such as adversary permission 
  * check on each component. 
@@ -37,26 +127,67 @@ int shadow_res_advance_name(char **n, int *nptr,
 	long len = 0;
 	int last_component = 0; 
 	char *name; 
-
+	struct path prev = nd->path; 
+	/* we want to maintain exact name being analyzed, 
+	 * nd->saved_names will lose it when we need to print it 
+	 * (it is lost as soon as resolution is done). */
 	if (nd->last_type == LAST_BIND) {
 		void *res; 
-		if (!nd->inode->i_op->follow_link) {
-			printk(KERN_INFO "no follow_link! [%s]\n", *n); 
-			return -EINVAL; 
-		}
+
+		// if (link->mnt == nd->path.mnt)
+		//	mntget(link->mnt);
+
+		nd_set_link(nd, NULL);
+		BUG_ON(!nd->inode->i_op->follow_link); 
+
+		path_get(&prev); 
+		/* follow_link, if directly resolving, drops reference to parent if -ENOENT, but 
+		 * it changes nd.path to (negative dentry) child. change it back to 
+		 * the previous (parent) */
 		res = nd->inode->i_op->follow_link(nd->path.dentry, nd); 
+		if (PTR_ERR(res) == -ENOENT) 
+			nd->path = prev; 
+		else
+			path_put(&prev); 
+
 		if (IS_ERR(res))
 			return PTR_ERR(res); 
-		strcpy(*n, nd->saved_names[0]); 
+
+		if (nd_get_link(nd)) 
+			*nptr = modify_lnk_name(n, *nptr, nd_get_link(nd)); 
+		else {
+			/* resolution already done in follow_link */
+			int ret; 
+
+			nd->flags |= LOOKUP_JUMPED; 
+			nd->inode = nd->path.dentry->d_inode; 
+			ret = get_d_path(&nd->path, n); 
+			if (ret < 0) 
+				return ret; 
+			if (nd->inode->i_op->follow_link) {
+				/* stepped on a _really_ weird one */
+				path_put(&nd->path);
+				return -ELOOP; 
+			}
+			/* we have to set other fields that would 
+			   normally be done by shadow_res_resolve_name */
+			*nptr = ret; 
+			nd->last_type = LAST_NORM; 
+			nd->flags &= ~LOOKUP_JUMPED; 
+			return 2; 
+		}
+
 		if (nd->inode->i_op->put_link)
 			nd->inode->i_op->put_link(nd->path.dentry, nd, res); 
-		*nptr = 0; 
 		goto out; 
 	}
 
 	name = (*n) + (*nptr); 
-	while (*name=='/')
+	while (*name=='/') {
 		name++;
+		(*nptr)++; 
+	}
+	
 	if (!*name) 
 		last_component = 1; 
 
@@ -116,11 +247,21 @@ static __always_inline void set_root(struct nameidata *nd)
 		get_fs_root(current->fs, &nd->root);
 }
 
+/* 
+   from Documentation/filesystems/path-lookup.txt: 
+   Making the child a parent for the next lookup requires more checks and
+   procedures. Symlinks essentially substitute the symlink name for the target
+   name in the name string, and require some recursive path walking.  Mount
+   points must be followed into, switching from the mount point path to the root of
+   the particular mounted vfsmount. 
+ */
+
 /* resolve name in nd->last_type to a path in nd->path */
 int shadow_res_resolve_name(struct nameidata *nd, char *name)
 {
 	struct path next;
 	int err = 0;
+	struct path prev = nd->path; /* restore in case of -ENOENT */
 
 	if (unlikely(current->total_link_count >= 40)) {
 		return -ELOOP;
@@ -136,15 +277,13 @@ int shadow_res_resolve_name(struct nameidata *nd, char *name)
 			nd->path = nd->root;
 			path_get(&nd->root);
 			nd->flags |= LOOKUP_JUMPED;
-			nd->inode = nd->path.dentry->d_inode;
 		} else {
 			/* relative, restore the parent to continue walk */
 			nd->path.dentry = nd->path.dentry->d_parent; 
-			nd->inode = nd->path.dentry->d_inode; 
 		}
 		nd->last_type = LAST_NORM; 
 		current->total_link_count++; 
-		return err; 
+		goto out; 
 	}
 
 	/* continue with resolution */
@@ -169,20 +308,35 @@ int shadow_res_resolve_name(struct nameidata *nd, char *name)
 		}
 	}
 
+	path_get(&prev); 
 	err = walk_component(nd, &next, &nd->last, nd->last_type, LOOKUP_FOLLOW);
-	if (err < 0)
-		return err;
+	/* walk_component drops reference to parent if -ENOENT, but 
+	 * it changes nd.path to (negative dentry) child. change it back to 
+	 * the previous (parent) */
+	if (err == -ENOENT) 
+		nd->path = prev; 
+	else
+		path_put(&prev); 
+
+	if (err < 0) {
+		goto out; 
+	}
 	if (err) {
 		/* walk_component does not set nd->path to next if next is a symlink,
 		 * as it will lose the parent, which we may need for further resolution. 
-		 * we manually restore the parent (see above) (is this ok?). */
+		 * we manually restore the parent (see above). 
+		 * this means if someone makes our parent dentry negative (e.g, rm -r), 
+		 * we have a negative dentry parent on which we can't check permission. 
+		 * correspondingly, adversary permission module has been modified to 
+		 * simply ignore this case. */
 		nd->last_type = LAST_BIND; 
 		nd->path.mnt = next.mnt; 
 		nd->path.dentry = next.dentry; 
-		nd->inode = nd->path.dentry->d_inode; 
 	}
 
-	// terminate_walk(nd);
+out:
+	/* consistency */
+	nd->inode = nd->path.dentry->d_inode; 
 	return err;
 }
 EXPORT_SYMBOL(shadow_res_resolve_name); 
@@ -248,6 +402,7 @@ int shadow_res_end(struct nameidata *nd)
 	int err; 
 	err = complete_walk(nd);
 
+	/* 
 	if (!err && nd->flags & LOOKUP_DIRECTORY) {
 		if (!nd->inode->i_op->lookup) {
 			path_put(&nd->path);
@@ -258,7 +413,30 @@ int shadow_res_end(struct nameidata *nd)
 	if (nd->root.mnt && !(nd->flags & LOOKUP_ROOT)) {
 		path_put(&nd->root);
 		nd->root.mnt = NULL;
-	}
+	} */
 	return err;
 }
 EXPORT_SYMBOL(shadow_res_end); 
+
+void shadow_res_get_pc_paths(struct path *parent, struct path *child, 
+		struct nameidata *nd, int err)
+{
+	if (err != -ENOENT) {
+		*child = nd->path; 
+		*parent = *child; 
+		// parent->dentry = child->dentry->d_parent; 
+		// if (child->dentry != parent->dentry)
+			// path_get(parent); 
+		path_get_parent(child, parent); 
+	} else {
+		*parent = nd->path; 
+		child->dentry = NULL; 
+		child->mnt = NULL; 
+	}
+}
+
+void shadow_res_put_pc_paths(struct path *parent, struct path *child, int err)
+{
+	if (err != -ENOENT && child->dentry != parent->dentry)
+		path_put(parent); 
+}
