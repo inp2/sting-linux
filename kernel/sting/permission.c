@@ -314,7 +314,7 @@ static inline int check_sticky(struct inode *dir, struct inode *inode)
 	return !capable(CAP_FOWNER);
 }
 
-static inline int may_create_noexist(struct inode *dir, struct dentry *child)
+static inline int may_create_noexist(struct inode *dir)
 {
 	if (IS_DEADDIR(dir))
 		return -ENOENT;
@@ -356,11 +356,14 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
    user can be made member of all groups.  He can use all permissions
    except as the current UID and primary group (?) of the victim
    process. Is this true?
+
+ * TODO: add unmount as a method to delete. 
  */
 
 #define ND_INODE(nd) nd.path.dentry->d_inode
 
-static int adv_has_perm(int adv_ind, struct dentry *fdentry, int flags, int f_exist)
+static int adv_has_perm(int adv_ind, struct dentry *parent, 
+		struct dentry *child, int flags)
 {
 	int match = UID_NO_MATCH, ret = 0;
 	struct cred *old_cred;
@@ -368,13 +371,13 @@ static int adv_has_perm(int adv_ind, struct dentry *fdentry, int flags, int f_ex
 	/* Change creds to possible attacker's */
 	old_cred = set_creds(uid_array[adv_ind]);
 
-	if (flags & ATTACKER_BIND) {
-		if (f_exist) {
+	if ((flags & ATTACKER_BIND) && child) {
+		if (child->d_inode) {
 			/* The file exists already, check delete permission */
-			if (S_ISDIR(fdentry->d_inode->i_mode))
-				ret = may_delete(fdentry->d_parent->d_inode, fdentry, 1);
+			if (S_ISDIR(child->d_inode->i_mode))
+				ret = may_delete(parent->d_inode, child, 1);
 			else
-				ret = may_delete(fdentry->d_parent->d_inode, fdentry, 0);
+				ret = may_delete(parent->d_inode, child, 0);
 			if (ret)
 				goto no_match;
 		}
@@ -382,7 +385,7 @@ static int adv_has_perm(int adv_ind, struct dentry *fdentry, int flags, int f_ex
 
 	if ((flags & ATTACKER_BIND) || (flags & ATTACKER_PREBIND)) {
 		/* Check creation, disregarding actual file existence */
-		ret = may_create_noexist(fdentry->d_parent->d_inode, fdentry);
+		ret = may_create_noexist(parent->d_inode); 
 		if (ret)
 			goto no_match;
 	}
@@ -404,57 +407,24 @@ no_match:
  * Returns index in uid_array of attacker if one exists, UID_NO_MATCH if not, -errno if error.
  */
 
-int sting_get_adversary(const char *fname, int flags)
+int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 {
-	int ret = 0, i = 0, j = 0, f_exist = -1, match = UID_NO_MATCH;
-	/* TODO: Collapse p_nd and f_nd into one */
-	struct path p_nd, f_nd;
-	struct dentry *fdentry;
-	int dfd = AT_FDCWD;
-	int flag_follow = 0;
+	int ret = 0, i = 0, j = 0, match = UID_NO_MATCH;
 	uid_t u;
 	gid_t g;
-	struct nameidata par_nd;
 
-	/* If no fname, exit immediately */
-	if (!fname)
-		goto out;
-
-	/* If parent directory doesn't exist, exit immediately */
-	ret = kern_path_parent(fname, &par_nd);
-	if (ret) {
-		/* Error */
-//		if (ret == -ENOENT)
-//			STING_DBG("Directory creation: %s required for process: %s\n", fname, current->comm);
-		goto out;
+	BUG_ON(parent == NULL); 
+	if (parent->d_inode == NULL) {
+		/* someone changed our parent while we were inside
+			(e.g., rm -r), simply ignore */
+		return match; 
 	}
-
-	/* Check if file already exists */
-	flag_follow = (in_set(syscall_get_nr(current,
-			task_pt_regs(current)), nosym_set)) ?
-			0 : LOOKUP_FOLLOW;
-	ret = kern_path(fname, flag_follow, &f_nd);
-	if (ret < 0 && ret != -ENOENT)
-		goto out_put_ppath;
-	else if (ret == -ENOENT) {
-		f_exist = 0;
-		/* temporarily create a dentry for the new file */
-		fdentry = kern_path_create(dfd, fname, &p_nd, 0);
-		if (IS_ERR(fdentry)) {
-			ret = PTR_ERR(fdentry);
-			goto out_put_ppath;
-		}
-	} else {
-		fdentry = f_nd.dentry;
-		f_exist = 1;
-	}
-
 	/* Try parent directory owner if not current UID */
-	u = fdentry->d_parent->d_inode->i_uid;
+	u = parent->d_inode->i_uid;
 	if (u != current->cred->fsuid)
 		for (i = 0; uid_array[i][0]; i++)
 			if (uid_array[i][0] == u) {
-				ret = adv_has_perm(i, fdentry, flags, f_exist);
+				ret = adv_has_perm(i, parent, child, flags);
 				if (ret == 1) {
 					match = i;
 					goto found;
@@ -462,13 +432,13 @@ int sting_get_adversary(const char *fname, int flags)
 			}
 
 	/* Try parent directory group users who are not current UID */
-	g = fdentry->d_parent->d_inode->i_gid;
+	g = parent->d_inode->i_gid;
 	for (i = 0; uid_array[i][0]; i++) {
 		if (uid_array[i][0] == current->cred->fsuid)
 			continue;
 		for (j = 1; uid_array[i][j]; j++) {
 			if (g == uid_array[i][j]) {
-				ret = adv_has_perm(i, fdentry, flags, f_exist);
+				ret = adv_has_perm(i, parent, child, flags); 
 				if (ret == 1) {
 					match = i;
 					goto found;
@@ -478,10 +448,10 @@ int sting_get_adversary(const char *fname, int flags)
 	}
 
 	/* Try world adversary */
-	if (sting_adversary_uid != -1)
+	if (sting_adversary_uid != -1 && u != current->cred->fsuid) 
 		for (i = 0; uid_array[i][0]; i++)
 			if (uid_array[i][0] == sting_adversary_uid) {
-				ret = adv_has_perm(i, fdentry, flags, f_exist);
+				ret = adv_has_perm(i, parent, child, flags); 
 				if (ret == 1) {
 					match = i;
 					goto found;
@@ -489,21 +459,6 @@ int sting_get_adversary(const char *fname, int flags)
 			}
 
 found:
-	/* Cleanup */
-	if (!f_exist) {
-		mutex_unlock(&p_nd.dentry->d_inode->i_mutex);
-		path_put(&p_nd);
-		dput(fdentry);
-	} else if (f_exist == 1) {
-		path_put(&f_nd);
-	}
-out_put_ppath:
-	path_put(&par_nd.path);
-
-out:
-	if (ret >= 0 && match >= 0 && match != UID_NO_MATCH)
-		printk(KERN_INFO STING_MSG "adversary: %d for uid: %d and filename: %s\n",
-			uid_array[match][0], current->cred->fsuid, fname);
 	return (ret < 0) ? ret : match;
 }
 EXPORT_SYMBOL(sting_get_adversary);
