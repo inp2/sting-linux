@@ -20,6 +20,9 @@
 #include <linux/un.h>
 #include <linux/net.h>
 #include <linux/sting.h>
+#include <linux/namei.h>
+#include <linux/xattr.h>
+#include <linux/fs_struct.h>
 
 #include <asm/syscall.h>
 
@@ -32,9 +35,6 @@
 #define CREATE_FILE_EXISTENT 0x2
 #define CREATE_DIR 0x4
 
-#define DONT_FOLLOW 0
-#define FOLLOW 1
-
 #define SYMLINK_FILE_INFIX "symlink"
 #define HARDLINK_FILE_INFIX "hardlink"
 
@@ -46,6 +46,16 @@
 #define TYPE_HARDLINK 0x1
 #define TYPE_SYMLINK 0x2
 
+/* 
+ * STING: routines associated with attacks. 
+ * to launch actual attacks, we use *at() family of system calls, 
+ * passing the parent dentry we already resolved that is
+ * adversary-accessible as a file. 
+ * we choose not to directly call VFS, as there will be 
+ * unnecessary duplication of complicated code for each system call. 
+ * The exception is listxattr, which does not have an *at(), so 
+ * we directly use VFS on the dentry. 
+ */
 
 char *get_last(char *filename)
 {
@@ -129,8 +139,74 @@ char *get_new_target_file(uid_t uid, char *filename, char *fname)
 }
 EXPORT_SYMBOL(get_new_target_file);
 
+static ssize_t
+listxattr(struct dentry *d, char **klist, size_t size)
+{
+	ssize_t error;
 
-/* Returns 0 if already checked */
+	if (size) {
+		if (size > XATTR_LIST_MAX)
+			size = XATTR_LIST_MAX;
+		*klist = kmalloc(size, __GFP_NOWARN | GFP_KERNEL);
+		if (!*klist) {
+			*klist = vmalloc(size);
+			if (!*klist)
+				return -ENOMEM;
+		}
+	}
+
+	error = vfs_listxattr(d, *klist, size);
+	if (error == -ERANGE && size >= XATTR_LIST_MAX) {
+		/* The file system tried to returned a list bigger
+		   than XATTR_LIST_MAX bytes. Not possible. */
+		error = -E2BIG;
+	}
+
+	return error;
+}
+
+/* Returns 1 if already checked */
+int sting_already_launched(struct dentry *dentry)
+{
+	int tret = 0; /* Not marked */
+	char *xattr_list = NULL;
+	size_t size = 0;
+	char *ptr = NULL;
+
+	if (!dentry) 
+		return 0; 
+
+	STING_CALL(size = listxattr(dentry, &xattr_list, 0));
+	if (((int) size) < 0) {
+		tret = (int) size; 
+		goto out;
+	}
+	STING_CALL(tret = listxattr(dentry, &xattr_list, size));
+	if (tret < 0) {
+		printk(KERN_INFO STING_MSG "xattr error: [%d]\n", tret); 
+		goto out; 
+	}
+
+	ptr = xattr_list;
+	tret = 0; /* Not marked */
+	while (ptr < xattr_list + size) {
+		if (!ptr) /* In between keys - shouldn't happen! */
+			continue;
+		if (!strcmp(ptr, ATTACKER_XATTR_STRING)) {
+			tret = 1;
+			break;
+		} else /* Jump to next key */
+			ptr += strlen(ptr) + 1;
+	}
+
+out:
+	if (xattr_list)
+		kfree(xattr_list);
+	return tret;
+}
+EXPORT_SYMBOL(sting_already_launched); 
+
+#if 0
 int check_already_attacked(char __user *filename, int follow)
 {
 	int tret = 1; /* Not marked */
@@ -181,6 +257,8 @@ out:
 		kfree(xattr_list);
 	return tret;
 }
+EXPORT_SYMBOL(check_already_attacked); 
+#endif 
 
 /* Call as superuser, as permissions for sticky dir etc.,
    are not available to all */
@@ -326,12 +404,6 @@ int file_create(char __user *filename, int reason, int type, int sn, int att_uid
 						"euid: %d attacker uid: %d, process: %s system call:  %d\n",
 						filename, current->real_cred->fsuid,
 						uid_array[att_uid_ind][0], current->comm, sn);
-				# if 0
-				printk(KERN_INFO STING_MSG "Delete SUCCESS for Tocttou runtime!: %s, proc euid: %d attacker uid: %d, process: %s system call: %d\n", filename, current->real_cred->fsuid, uid_array[att_uid_ind][0], current->comm, sn);
-				log_str = kasprintf(GFP_ATOMIC, STING_MSG "Delete SUCCESS for Tocttou runtime!: %s, proc euid: %d attacker uid: %d, process: %s system call: %d\n", filename, current->real_cred->fsuid, uid_array[att_uid_ind][0], current->comm, sn);
-				relay_write(wall_rchan, log_str, strlen(log_str) + 1);
-				kfree(log_str);
-				#endif
 			}
 		}
 
@@ -417,7 +489,7 @@ mark:
  * XATTRs set on links and actual files if created.
  */
 
-int hardlink_create(char __user *filename, int type, int sn, int att_uid_ind)
+int hardlink_create(char *filename, int type, int sn, int att_uid_ind)
 {
 	const struct cred *old_cred;
 	int ret = 0; /* index of attacker in uid_array */
@@ -520,7 +592,7 @@ restore:
  * XATTRs set on links and actual files if created.
  */
 
-int symlink_create(char __user *filename, int flag, int sn, int att_uid_ind)
+int symlink_create(char *filename, int flag, int sn, int att_uid_ind)
 {
 	const struct cred *old_cred;
 	int ret = 0;
@@ -529,6 +601,8 @@ int symlink_create(char __user *filename, int flag, int sn, int att_uid_ind)
 	int exists = 0;
 	int orig_fsuid = 0; /* Original UID of process */
 	struct stat64 buf;
+
+	/* TODO: trasnlate all calls to use *at(), after geting file from dentry */
 
 	if (!tmp_f)
 		return -ENOMEM;
@@ -629,15 +703,59 @@ int should_skip(char __user *filename)
 	return 0;
 }
 
-int sting_launch_attack(char *fname, int a_ind, int attack_type)
+
+static int get_attacked_path(char *fname, struct path *fpath)
+{
+	int flag_follow; 
+
+	flag_follow = (in_set(syscall_get_nr(current,
+			task_pt_regs(current)), nosym_set)) ?
+			0 : LOOKUP_FOLLOW;
+	return kern_path(fname, flag_follow, fpath);
+}
+
+/* don't drop reference to old path. don't get reference to 
+   new path */
+void temp_set_fs_pwd(struct fs_struct *fs, struct path *path)
+{
+	struct path old_pwd;
+
+	spin_lock(&fs->lock);
+	write_seqcount_begin(&fs->seq);
+	old_pwd = fs->pwd;
+	fs->pwd = *path;
+	write_seqcount_end(&fs->seq);
+	spin_unlock(&fs->lock);
+}
+
+void temp_switch_cwd(struct path *new, struct path *old)
+{
+	get_fs_pwd(current->fs, old); 
+	temp_set_fs_pwd(current->fs, new); 
+}
+
+void temp_restore_cwd(struct path *old)
+{
+	path_put(old); /* due to get_fs_pwd */
+	temp_set_fs_pwd(current->fs, old); 
+}
+
+/**
+ * sting_launch_attack() - Launch attack 
+ * @fname:			Resource name (last component) relative to @parent
+ * @parent:			Parent path
+ * @a_ind:			Identity of attacker (index in uid_array)
+ * @attack_type:	%SYMLINK, %HARDLINK, %SQUAT
+ */
+
+int sting_launch_attack(char *fname, struct path *parent, 
+		int a_ind, int attack_type)
 {
 	int tret = 0;
 	struct pt_regs *ptregs = task_pt_regs(current);
 	int sn = ptregs->orig_ax;
 
-	/* Not a syscall involving name resolution? */
-	if (!fname)
-		goto out;
+	struct path old_cwd; 
 
 	#if 0
 	/* Cases of random filenames etc., allow through */
@@ -646,12 +764,8 @@ int sting_launch_attack(char *fname, int a_ind, int attack_type)
 	}
 	#endif
 
-	/* If file exists and already marked,
-	   attacker already played her card, move on */
-
-	tret = check_already_attacked(fname, DONT_FOLLOW);
-	if (tret == 0)
-		goto out;
+	/* chdir to parent, so syscalls reduce to their *at() versions */
+	temp_switch_cwd(parent, &old_cwd); 
 
 	/* TODO: Can we model this in terms of in_set() alone? */
 	if (attack_type & SYMLINK) {
@@ -737,7 +851,22 @@ int sting_launch_attack(char *fname, int a_ind, int attack_type)
 		}
 	}
 	#endif
-out:
+// out_eexist:
+	#if 0
+	/* get changed path */
+	if (tret == 0 || tret == -EEXIST) {
+		int r; 
+		r = get_attacked_path(fname, fpath); 
+		if (r < 0) {
+			STING_ERR(0, "Error getting dentry of already launched attack\n"); 
+			tret = r; 
+			goto out; 
+		}
+	}
+	#endif 
+// out:
+	/* chdir to parent, so *at() versions of calls can be used */
+	temp_restore_cwd(&old_cwd); 
 	return tret;
 }
 EXPORT_SYMBOL(sting_launch_attack);

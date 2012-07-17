@@ -434,9 +434,27 @@ void shadow_res_get_pc_paths(struct path *parent, struct path *child,
 		child->mnt = NULL; 
 	}
 }
+EXPORT_SYMBOL(shadow_res_get_pc_paths); 
 
 void shadow_res_put_pc_paths(struct path *parent, struct path *child, int err)
 {
 	if (err != -ENOENT && child->dentry != parent->dentry)
 		path_put(parent); 
 }
+EXPORT_SYMBOL(shadow_res_put_pc_paths); 
+
+void shadow_res_put_lookup_path(struct nameidata *nd)
+{
+	path_put(&nd->path); 
+}
+EXPORT_SYMBOL(shadow_res_put_lookup_path); 
+
+char *shadow_res_get_last_name(struct nameidata *nd, struct path *child)
+{
+	/* if nd->last.name == "..", then child dentry holds correct name */
+	if (child->dentry)
+		return child->dentry->d_name.name; 
+
+	return nd->last.name; 
+}
+EXPORT_SYMBOL(shadow_res_get_last_name); 

@@ -13,3 +13,5 @@ void shadow_res_get_pc_paths(struct path *parent, struct path *child,
 		struct nameidata *nd, int err); 
 void shadow_res_put_pc_paths(struct path *parent, struct path *child, int err); 
 // extern void path_get_parent(const struct path *child, struct path *parent); 
+char *shadow_res_get_last_name(struct nameidata *nd, struct path *child); 
+void shadow_res_put_lookup_path(struct nameidata *nd); 

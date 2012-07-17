@@ -448,7 +448,7 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 	}
 
 	/* Try world adversary */
-	if (sting_adversary_uid != -1 && u != current->cred->fsuid) 
+	if (sting_adversary_uid != -1)
 		for (i = 0; uid_array[i][0]; i++)
 			if (uid_array[i][0] == sting_adversary_uid) {
 				ret = adv_has_perm(i, parent, child, flags); 
