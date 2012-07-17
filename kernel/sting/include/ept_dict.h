@@ -5,7 +5,9 @@ struct ept_dict_key {
 
 struct ept_dict_val {
 	int adversary_access;
-	/* format: 16 empty bits || immune (8 bits) || attack_type (8 bits) */
+	/* format: 16 empty bits || checked (8 bits) || immune (8 bits) */
+	/* immunity means only to attack type launched at this entrypoint, 
+	 * not immunity to attack types launched from other entrypoints */
 	int attack_history;
 };
 
