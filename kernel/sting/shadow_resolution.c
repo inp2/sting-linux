@@ -127,7 +127,6 @@ int shadow_res_advance_name(char **n, int *nptr,
 	long len = 0;
 	int last_component = 0; 
 	char *name; 
-	struct path prev = nd->path; 
 	/* we want to maintain exact name being analyzed, 
 	 * nd->saved_names will lose it when we need to print it 
 	 * (it is lost as soon as resolution is done). */
@@ -140,15 +139,10 @@ int shadow_res_advance_name(char **n, int *nptr,
 		nd_set_link(nd, NULL);
 		BUG_ON(!nd->inode->i_op->follow_link); 
 
-		path_get(&prev); 
 		/* follow_link, if directly resolving, drops reference to parent if -ENOENT, but 
 		 * it changes nd.path to (negative dentry) child. change it back to 
 		 * the previous (parent) */
 		res = nd->inode->i_op->follow_link(nd->path.dentry, nd); 
-		if (PTR_ERR(res) == -ENOENT) 
-			nd->path = prev; 
-		else
-			path_put(&prev); 
 
 		if (IS_ERR(res))
 			return PTR_ERR(res); 
