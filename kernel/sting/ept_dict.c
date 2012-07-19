@@ -151,7 +151,7 @@ EXPORT_SYMBOL(ept_dict_reverse_lookup);
 
 static void ept_dict_f_adv_acc(struct dict_entry *e, void *pd)
 {
-	if (((struct ept_dict_entry *) e)->val.adversary_access == 1)
+	if (((struct ept_dict_entry *) e)->val.dac.adversary_access == 1)
 		(* (int *) pd)++;
 	return;
 }
@@ -165,8 +165,12 @@ static void ept_dict_f_total(struct dict_entry *e, void *pd)
 static void ept_dict_f_print(struct dict_entry *e, void *pd)
 {
 	struct ept_dict_entry *et = (struct ept_dict_entry *) e;
-	STING_LOG("key: [%lu,%lx] value: [%d,%d]\n", (unsigned long) et->key.ino,
-		et->key.offset, et->val.adversary_access, et->val.attack_history);
+	STING_LOG("key: [%lu,%lx] value: [%lu,%d,%s,%d,%d,%d,%d,%d]\n", 
+			(unsigned long) et->key.ino, et->key.offset, 
+			et->val.time, et->val.ctr, et->val.comm, 
+			et->val.dac.ctr_first_adv, et->val.dac.adversary_access, 
+			// et->val.mac.ctr_first_adv, et->val.mac.adversary_access, 
+			et->val.attack_history);
 }
 
 void ept_dict_entries(int *nadv, int *ntot)

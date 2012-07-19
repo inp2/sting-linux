@@ -3,8 +3,27 @@ struct ept_dict_key {
 	unsigned long offset;
 };
 
-struct ept_dict_val {
+struct adv_model 
+{
+	/* how many times to get first adversary accessibility 
+	 * under this model? */
+	int ctr_first_adv; 
+	/* is it accessible to adversary under this model? */
 	int adversary_access;
+}; 
+
+#define MAX_PROC_NAME 32
+struct ept_dict_val {
+	/* TSC time when ept was first recorded */
+	unsigned long time; 
+	/* how many times has this ept been accessed? */
+	int ctr; 
+	/* name of process */
+	char comm[MAX_PROC_NAME]; 
+
+	struct adv_model dac; 
+	struct adv_model mac; 
+
 	/* format: 16 empty bits || checked (8 bits) || immune (8 bits) */
 	/* immunity means only to attack type launched at this entrypoint, 
 	 * not immunity to attack types launched from other entrypoints */

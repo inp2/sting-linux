@@ -10,6 +10,7 @@
 #include <linux/mount.h>
 
 #include <asm-generic/current.h>
+// #include <asm/msr.h>
 
 #include "ept_dict.h"
 #include "permission.h"
@@ -286,7 +287,8 @@ void sting_syscall_begin(void)
 			/* can't recover from -ENOENT here, follow_link may
 			   not have updated nd->path */
 			sh_err = lc; 
-			goto put; 
+			/* nothing to put */
+			goto end; 
 		}
 		if (lc != 2) {
 			/* not already resolved by follow_link */
@@ -334,26 +336,35 @@ void sting_syscall_begin(void)
 	e.key.offset = ept_offset_get(&t->user_stack);
 	r = ept_dict_lookup(&e.key);
 
-	if (r && !r->val.adversary_access &&
-				sting_valid_adversary(adv_uid_ind)) {
+	if (r) {
 		/* update ept dictionary */
-		e.val.adversary_access = 1;
-		e.val.attack_history = 0;
-		r = ept_dict_entry_set(&e.key, &e.val);
+		r->val.ctr++; 
 	} else if (!r) {
 		/* insert into ept dictionary */
-		e.val.adversary_access = !!sting_valid_adversary(adv_uid_ind);
+		rdtscl(e.val.time); 
+		e.val.ctr = 1; 
+		strncpy(e.val.comm, current->comm, MAX_PROC_NAME); 
+		e.val.dac.adversary_access = 0; // !!sting_valid_adversary(adv_uid_ind);
+		e.val.dac.ctr_first_adv = 0; 
 		e.val.attack_history = 0;
 		r = ept_dict_entry_set(&e.key, &e.val);
 	}
+	if ((!r->val.dac.adversary_access) && 
+			sting_valid_adversary(adv_uid_ind)) {
+		r->val.dac.ctr_first_adv = r->val.ctr; 
+		r->val.dac.adversary_access = 1; 
+	}
 
+	// printk(KERN_INFO "r: [%p]\n", r); 
+	
+	goto parent_put; 
 	if (!sting_valid_adversary(adv_uid_ind)) {
 		/* exit - raise this check above if performance needed */
 		goto parent_put;
 	}
 
 	ntest = SYMLINK; 
-	sting_launch_attack(shadow_res_get_last_name(&nd, &child), &parent, adv_uid_ind, ntest); 
+	// sting_launch_attack(shadow_res_get_last_name(&nd, &child), &parent, adv_uid_ind, ntest); 
 #if 0
 	/* check if dentry has been used for another test case */
 	if (child.dentry != NULL) {
@@ -442,6 +453,8 @@ parent_put:
 put:
 	if (sh_err < 0)
 		STING_DBG("sting: fname: %s [ %d ]\n", fname, sh_err); 
+	if (!nd.path.dentry->d_count)
+		printk(KERN_INFO STING_MSG "d_count 0!\n"); 
 	shadow_res_put_lookup_path(&nd); 
 //	path_put(&nd.path); 
 end:
