@@ -128,7 +128,6 @@ static int first_arg_set[] = {
 	__NR_truncate,
 	__NR_statfs,
 	__NR_swapoff,
-	__NR_quotactl,
 	__NR_chown,
 	__NR_truncate64,
 	__NR_lchown32,
@@ -154,6 +153,7 @@ static int first_arg_set[] = {
 
 /* System calls for which the second argument is a filename to resolve */
 static int second_arg_set[] = {
+	__NR_quotactl,
 	__NR_inotify_add_watch,
 	__NR_openat,
 	__NR_mkdirat,
