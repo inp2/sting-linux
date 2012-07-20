@@ -34,6 +34,10 @@ struct dict_fns {
 	/* allocation and de-allocation*/
 	struct dict_entry * (*dict_entry_alloc) (void);
 	void (*dict_entry_free) (struct dict_entry *e);
+	void (*dict_get_read_lock) (void); 
+	void (*dict_release_read_lock) (void); 
+	void (*dict_get_write_lock) (void); 
+	void (*dict_release_write_lock) (void); 
 };
 
 struct dict_entry *dict_lookup(struct hlist_head *dict,
@@ -45,5 +49,7 @@ struct dict_entry *dict_entry_set(struct hlist_head *dict,
 struct dict_entry *dict_reverse_lookup(struct hlist_head *dict,
 		struct dict_val *val, unsigned long dict_sz, struct dict_fns *df);
 void dict_entry_generic(struct hlist_head *dict, unsigned long dict_sz,
-		void *private_data, void (*dict_generic) (struct dict_entry *e,
-		void *private_data));
+		struct dict_fns *df, void *private_data, 
+		void (*dict_gen_func) (struct dict_entry *e, void *private_data)); 
+void dict_free(struct hlist_head *dict, unsigned long dict_sz, 
+		struct dict_fns *df); 

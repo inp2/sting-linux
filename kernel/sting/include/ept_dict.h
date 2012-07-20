@@ -38,6 +38,17 @@ struct ept_dict_entry {
 
 struct ept_dict_entry *ept_dict_lookup(struct ept_dict_key *key);
 void ept_dict_entry_remove(struct ept_dict_key *key);
+void ept_dict_free(void); 
 struct ept_dict_entry *ept_dict_entry_set(struct ept_dict_key *key, struct ept_dict_val *val);
 struct ept_dict_entry *ept_dict_reverse_lookup(struct ept_dict_val *val);
 void ept_dict_entries(int *nadv, int *ntot);
+int ept_dict_populate(void *buf, int sz); 
+
+/* dump ept_entries through /sys/kernel/debug/ept_dict_dump */
+extern struct rchan *ept_dict_dump_rchan; 
+
+#define EPT_DICT_DUMP(p, n) { \
+	current->sting_request++; \
+	relay_write(ept_dict_dump_rchan, p, n); \
+	current->sting_request--; \
+} 
