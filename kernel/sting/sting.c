@@ -418,7 +418,7 @@ void sting_syscall_begin(void)
 		 * it might have been removed by the prog, we don't want to delete that.  */
 		/* delete only if the dentry refcount reaches 1 */
 		// sting_rollback(m->dentry); 
-		STING_LOG("[%s:%lx] retry\n", t->comm, m->offset); 
+		STING_LOG("[%s:%lx] retry immunity\n", t->comm, m->offset); 
 		sting_mark_immune(r, m->attack_type); 
 		sting_list_del(m); 
 		goto parent_put; 
@@ -461,3 +461,37 @@ end:
 	return;
 }
 EXPORT_SYMBOL(sting_syscall_begin);
+
+void sting_process_exit(void)
+{
+	/* mark pending sting entrypoints as immune */
+	struct sting st, *m = NULL; 
+	struct ept_dict_entry e, *r; 
+
+	st.pid = current->pid; 
+
+	do {
+		m = sting_list_get(&st, MATCH_PID); 
+
+		e.key.ino = m->ino; 
+		e.key.offset = m->offset; 
+
+		r = ept_dict_lookup(&e.key);
+		if (!r) {
+			printk(KERN_INFO STING_MSG "pending sting [%lx:%lx] not in ept_dict!\n", 
+					e.key.ino, e.key.offset); 
+			goto out; 
+		}
+		/* when rolling back, make sure that the file is still labeled by attacker.
+		 * it might have been removed by the prog, we don't want to delete that.  */
+		/* delete only if the dentry refcount reaches 1 */
+		// sting_rollback(m->dentry); 
+		STING_LOG("[%s:%lx] exit immunity\n", r->val.comm, m->offset); 
+		sting_mark_immune(r, m->attack_type); 
+		sting_list_del(m); 
+	} while (m); 
+
+out:
+	return; 
+}
+EXPORT_SYMBOL(sting_process_exit); 
