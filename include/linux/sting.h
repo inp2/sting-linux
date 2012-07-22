@@ -41,6 +41,7 @@
 }
 
 extern void sting_syscall_begin(void);
+void sting_process_exit(void); 
 
 /* logging */
 

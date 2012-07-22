@@ -470,9 +470,8 @@ void sting_process_exit(void)
 
 	st.pid = current->pid; 
 
-	do {
-		m = sting_list_get(&st, MATCH_PID); 
-
+	m = sting_list_get(&st, MATCH_PID); 
+	while (m) {
 		e.key.ino = m->ino; 
 		e.key.offset = m->offset; 
 
@@ -489,7 +488,10 @@ void sting_process_exit(void)
 		STING_LOG("[%s:%lx] exit immunity\n", r->val.comm, m->offset); 
 		sting_mark_immune(r, m->attack_type); 
 		sting_list_del(m); 
-	} while (m); 
+	
+		/* get next sting */
+		m = sting_list_get(&st, MATCH_PID); 
+	} 
 
 out:
 	return; 
