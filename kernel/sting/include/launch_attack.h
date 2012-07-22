@@ -17,7 +17,7 @@
 #define ATTACKER_XATTR_VALUE "1"
 
 int sting_launch_attack(char *fname, struct path *parent, 
-		int a_ind, int attack_type); 
+		int a_ind, int attack_type, struct path *marked); 
 // int check_already_attacked(char __user *filename, int follow); 
 extern int sting_already_launched(struct dentry *dentry); 
 
@@ -30,6 +30,7 @@ static inline int sting_get_next_attack(int attack_history)
 {
 	if (!sting_attack_checked(attack_history, SYMLINK))
 		return SYMLINK; 
+	return -1; 
 	if (!sting_attack_checked(attack_history, HARDLINK))
 		return HARDLINK; 
 	if (!sting_attack_checked(attack_history, SQUAT))

@@ -26,8 +26,8 @@ void dict_free(struct hlist_head *dict, unsigned long dict_sz,
 		struct dict_fns *df)
 {
 	struct dict_entry *tmp;
-	int i; 
 	struct hlist_node *node, *n;
+	int i; 
 
 	df->dict_get_write_lock(); 
 
@@ -45,16 +45,20 @@ EXPORT_SYMBOL(dict_free);
 void dict_entry_remove(struct hlist_head *dict,
 		struct dict_key *key, struct dict_fns *df)
 {
-	struct dict_entry *tmp;
+	struct dict_entry *tmp; 
+	struct hlist_node *node, *n;
 	int i;
 
 	/* Get the hash index for this subject */
 	i = df->dict_hash(key);
 
 	df->dict_get_write_lock(); 
-	if ((tmp = dict_lookup(dict, key, df))) {
-		hlist_del(&(tmp->list));
-		df->dict_entry_free(tmp);
+    hlist_for_each_entry_safe(tmp, node, n, &dict[i], list) {
+		if (!df->dict_key_cmp(df->dict_key_get(tmp), key)) {
+			hlist_del(&(tmp->list));
+			df->dict_entry_free(tmp);
+			break; 
+		}
 	}
 
 	df->dict_release_write_lock(); 
@@ -73,7 +77,6 @@ struct dict_entry *dict_entry_set(struct hlist_head *dict,
 		/* Update existing entry */
 		/* TODO: For in-place mods, we don't lock, even 
 		   in sting.c */
-
 		// df->dict_get_write_lock(); 
 		df->dict_val_cpy(df->dict_val_get(tmp), val);
 		// df->dict_release_write_lock(); 

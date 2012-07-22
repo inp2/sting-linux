@@ -677,7 +677,7 @@ restore:
 			}
 		}
 	} else {
-		printk(KERN_INFO "sting: [%d] couldn't create [%s] although has permission!\n",
+		STING_LOG("sting: [%d] couldn't create [%s] although has permission!\n",
 			uid_array[att_uid_ind][0], filename);
 	}
 
@@ -704,14 +704,9 @@ int should_skip(char __user *filename)
 }
 
 
-static int get_attacked_path(char *fname, struct path *fpath)
+static int get_attacked_path(char *fname, struct path *attacked)
 {
-	int flag_follow; 
-
-	flag_follow = (in_set(syscall_get_nr(current,
-			task_pt_regs(current)), nosym_set)) ?
-			0 : LOOKUP_FOLLOW;
-	return kern_path(fname, flag_follow, fpath);
+	return kern_path(fname, 0, attacked);
 }
 
 /* don't drop reference to old path. don't get reference to 
@@ -746,10 +741,11 @@ void temp_restore_cwd(struct path *old)
  * @parent:			Parent path
  * @a_ind:			Identity of attacker (index in uid_array)
  * @attack_type:	%SYMLINK, %HARDLINK, %SQUAT
+ * @fpath:			path of attacked resource (to be filled in)
  */
 
 int sting_launch_attack(char *fname, struct path *parent, 
-		int a_ind, int attack_type)
+		int a_ind, int attack_type, struct path *fpath)
 {
 	int tret = 0;
 	struct pt_regs *ptregs = task_pt_regs(current);
@@ -852,20 +848,19 @@ int sting_launch_attack(char *fname, struct path *parent,
 	}
 	#endif
 // out_eexist:
-	#if 0
 	/* get changed path */
-	if (tret == 0 || tret == -EEXIST) {
+
+	if (tret == 0) {
 		int r; 
+		/* get reference to launched attack's dentry */
 		r = get_attacked_path(fname, fpath); 
 		if (r < 0) {
-			STING_ERR(0, "Error getting dentry of already launched attack\n"); 
+			printk(KERN_INFO STING_MSG "Error getting dentry of already launched attack\n"); 
 			tret = r; 
-			goto out; 
 		}
 	}
-	#endif 
-// out:
-	/* chdir to parent, so *at() versions of calls can be used */
+
+	/* restore cwd */
 	temp_restore_cwd(&old_cwd); 
 	return tret;
 }

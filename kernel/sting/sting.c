@@ -147,30 +147,41 @@ static inline int valid_user_stack(struct user_stack_info *us)
 }
 
 static struct sting sting_list; 
-static DEFINE_RWLOCK(stings_rwlock); 
+static struct rw_semaphore stings_rwlock; 
 
 void sting_list_add(struct sting *st) 
 {
-	unsigned long flags; 
-	write_lock_irqsave(&stings_rwlock, flags); 
-	list_add(&st->list, &sting_list.list); 
-	write_unlock_irqrestore(&stings_rwlock, flags); 
+	struct sting *news = kmalloc(sizeof(struct sting), GFP_KERNEL); 
+	if (!news)
+		return; 
+	memcpy(news, st, sizeof(struct sting)); 
+	STING_LOG("added [%s:%lx] accessing [%s] to sting_list for " 
+			"adversary [%d] and victim [%d]\n", 
+			current->comm, news->offset, news->path.dentry->d_name.name, 
+			uid_array[news->adv_uid_ind][0], current->cred->fsuid); 
+	down_write(&stings_rwlock); 
+	path_get(&news->path);
+	list_add_tail(&news->list, &sting_list.list); 
+	up_write(&stings_rwlock); 
 }
 
 void sting_list_del(struct sting *st)
 {
-	unsigned long flags; 
-	write_lock_irqsave(&stings_rwlock, flags); 
-	list_del(&sting_list.list); 
-	write_unlock_irqrestore(&stings_rwlock, flags); 
+	STING_LOG("deleted [%s:%lx] accessing [%s] to sting_list for " 
+			"adversary [%d] and victim [%d]\n", 
+			current->comm, st->offset, st->path.dentry->d_name.name, 
+			uid_array[st->adv_uid_ind][0], current->cred->fsuid); 
+	path_put(&st->path); 
+	down_write(&stings_rwlock); 
+	list_del(&st->list); 
+	up_write(&stings_rwlock); 
 }
 
 struct sting *sting_list_get(struct sting *st, int st_flags)
 {
-	struct sting *t; 
-	unsigned long flags; 
-	read_lock_irqsave(&stings_rwlock, flags); 
-	list_for_each_entry(t, &sting_list.list, list) {
+	struct sting *t, *n; 
+	down_read(&stings_rwlock); 
+	list_for_each_entry_safe(t, n, &sting_list.list, list) {
 		if ((st_flags & MATCH_PID) && (t->pid != st->pid))
 			continue; 
 		if ((st_flags & MATCH_EPT) && 
@@ -180,12 +191,12 @@ struct sting *sting_list_get(struct sting *st, int st_flags)
 			continue; 
 
 		/* match */
-		read_unlock_irqrestore(&stings_rwlock, flags); 
+		up_read(&stings_rwlock); 
 		return t; 
 	}
 
 	/* no match */
-	read_unlock_irqrestore(&stings_rwlock, flags); 
+	up_read(&stings_rwlock); 
 	return NULL;  
 }
 
@@ -210,6 +221,7 @@ static int __init sting_init(void)
 
 	/* initialize linked list of ongoing stings */
 	INIT_LIST_HEAD(&sting_list.list); 
+	init_rwsem(&stings_rwlock); 
 	return 0;
 }
 fs_initcall(sting_init);
@@ -233,10 +245,12 @@ fail:
 	return 0;
 }
 
-void sting_mark_immune(struct ept_dict_val *v, int attack_type)
+void sting_mark_immune(struct ept_dict_entry *e, int attack_type)
 {
-	v->attack_history |= attack_type << 8; 
-	v->attack_history &= ~(attack_type); 
+	e->val.attack_history |= attack_type << 8; 
+	e->val.attack_history &= ~(attack_type); 
+	STING_LOG("marked immune [%s:%lx]\n", 
+			current->comm, e->key.offset); 
 }
 
 void sting_mark_vulnerable(struct ept_dict_val *v, int attack_type)
@@ -251,17 +265,15 @@ void sting_mark_vulnerable(struct ept_dict_val *v, int attack_type)
 void sting_syscall_begin(void)
 {
 	char *fname = NULL;
-	struct path fpath; 
 	int adv_uid_ind = UID_NO_MATCH; 
 	struct ept_dict_entry e, *r;
 	int ntest;
 	struct task_struct *t = current; 
 	struct nameidata nd; 
 	int lc = 0 /* last component? */, ctr = 0; 
-	int err, sh_err = 0; 
+	int err = 0, sh_err = 0; 
 	struct sting st, *m; 
-	int added_current = 0; /* if added, cannot drop reference to path */
-	struct path parent, child; 	
+	struct path parent, child, marked; 	
 
 	if (!check_valid_user_context(t))
 		goto end;
@@ -269,7 +281,6 @@ void sting_syscall_begin(void)
 	fname = get_syscall_fname();
 	if (!fname)
 		goto end;
-	STING_ERR(1, "fname: [%s]\n", fname); 
 
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
@@ -313,7 +324,7 @@ void sting_syscall_begin(void)
 			shadow_res_put_pc_paths(&parent, &child, sh_err); 
 
 			if (sting_valid_adversary(adv_uid_ind)) {
-				printk(KERN_INFO STING_MSG "adversary: %d for uid: %d and filename: %s\n", 
+				STING_LOG("adversary: %d for uid: %d and filename: %s\n", 
 					uid_array[adv_uid_ind][0], current->cred->fsuid, fname); 
 				break; 
 			}
@@ -338,13 +349,14 @@ void sting_syscall_begin(void)
 
 	if (r) {
 		/* update ept dictionary */
+		/* TODO: protect modification (also see dict.c) */
 		r->val.ctr++; 
 	} else if (!r) {
 		/* insert into ept dictionary */
 		rdtscl(e.val.time); 
 		e.val.ctr = 1; 
 		strncpy(e.val.comm, current->comm, MAX_PROC_NAME); 
-		e.val.dac.adversary_access = 0; // !!sting_valid_adversary(adv_uid_ind);
+		e.val.dac.adversary_access = 0; 
 		e.val.dac.ctr_first_adv = 0; 
 		e.val.attack_history = 0;
 		r = ept_dict_entry_set(&e.key, &e.val);
@@ -355,22 +367,16 @@ void sting_syscall_begin(void)
 		r->val.dac.adversary_access = 1; 
 	}
 
-	// printk(KERN_INFO "r: [%p]\n", r); 
-	
-	goto parent_put; 
 	if (!sting_valid_adversary(adv_uid_ind)) {
 		/* exit - raise this check above if performance needed */
 		goto parent_put;
 	}
 
-	ntest = SYMLINK; 
-	// sting_launch_attack(shadow_res_get_last_name(&nd, &child), &parent, adv_uid_ind, ntest); 
-#if 0
 	/* check if dentry has been used for another test case */
 	if (child.dentry != NULL) {
 		err = sting_already_launched(child.dentry); 
 		if (err < 0)
-			goto put; 
+			goto parent_put; 
 
 		/* if so, add that test case to current ept. no need to 
 		 * launch attack */
@@ -378,15 +384,14 @@ void sting_syscall_begin(void)
 			/* already in use for another attack. add current
 			 * entrypoint to same attack if adversary. 
 			 * TODO: if not, mark as redirect to lower branch.  */
-			st.path.dentry = child.dentry; 
-			st.path.mnt = child.mnt; 
+			st.path = child; 
 			m = sting_list_get(&st, MATCH_DENTRY); 
 			if (!m) {
 				printk(KERN_INFO STING_MSG
 						"no attack in list although marked: [%s]\n", fname); 
-				goto put; 
+				goto parent_put; 
 			}
-			/* if the attack were launched elsewhere, it means a new 
+			/* if the attack was launched elsewhere, it means a new 
 			 * cross-entrypoint path is exercised, so it does not matter if 
 			 * we are immune to the same attack type _launched_ at our ept */
 			if (r && sting_attack_checked(r->val.attack_history, m->attack_type)) {
@@ -395,18 +400,13 @@ void sting_syscall_begin(void)
 			if (!sting_adversary(uid_array[m->adv_uid_ind][0], t->cred->fsuid)) {
 				printk(KERN_INFO STING_MSG
 						"another non-adversarial attack ongoing: [%s]\n", fname); 
-				goto put; 
+				goto parent_put; 
 			}
 
 			memcpy(&st, m, sizeof(struct sting)); 
 			task_fill_sting(&st, t); 
 			sting_list_add(&st); 
-			added_current = 1; 
-			STING_LOG("added [%s:%lx] accessing [%s] to sting_list for " 
-					"adversary [%d] and victim [%d]\n", 
-					t->comm, st.offset, fname, 
-					uid_array[adv_uid_ind][0], t->cred->fsuid); 
-			goto put; 
+			goto parent_put; 
 		}
 	}
 
@@ -416,38 +416,36 @@ void sting_syscall_begin(void)
 	if (m) {
 		/* when rolling back, make sure that the file is still labeled by attacker.
 		 * it might have been removed by the prog, we don't want to delete that.  */
+		/* delete only if the dentry refcount reaches 1 */
 		// sting_rollback(m->dentry); 
-		sting_mark_immune(&r->val, m->attack_type); 
+		STING_LOG("[%s:%lx] retry\n", t->comm, m->offset); 
+		sting_mark_immune(r, m->attack_type); 
 		sting_list_del(m); 
-		goto put; 
+		goto parent_put; 
 	}
 
 	/* get next attack */
 	ntest = sting_get_next_attack(r->val.attack_history); 
+	if (ntest == -1) {
+		/* all attacks tried */
+		goto parent_put; 
+	}
 
-	// added_current = 1; 
-	// sting_list_add; 
+	err = sting_launch_attack(shadow_res_get_last_name(&nd, &child), 
+			&parent, adv_uid_ind, ntest, &marked); 
+	if (err < 0)
+		goto parent_put; 
+	
+	st.pid = t->pid; 
+	st.ino = ept_inode_get(&t->user_stack);
+	st.offset = ept_offset_get(&t->user_stack);
+	st.path = marked; 
+	st.attack_type = ntest; 
+	st.adv_uid_ind = adv_uid_ind; 
 
-	if (sting_valid_adversary(adv_uid_ind))
-		/* check retry */
-		if (sting_pending_lookup_ept(t)) {
-			/* retry => immune to pending attack (if any) */
-			type = sting_pending_get_type(t, r->key.offset);
-			sting_pending_remove_ept(t, r->key.offset);
-			ept_dict_mark_immune(r, (r->value.attack_history) & type);
-		}
+	sting_list_add(&st); 
+	path_put(&marked); 
 
-		/* get next attack */
-		ntest = get_next_attack(e.value.attack_history);
-		if (!ntest)
-			goto put;
-
-		/* update pending */
-		sting_pending_add_ept(t);
-
-		/* attack! */
-		fuzz_resource(fname, ntest, adv_uid, 0);
-#endif
 parent_put:
 	shadow_res_put_pc_paths(&parent, &child, sh_err); 
 put:
@@ -456,7 +454,6 @@ put:
 	if (!nd.path.dentry->d_count)
 		printk(KERN_INFO STING_MSG "d_count 0!\n"); 
 	shadow_res_put_lookup_path(&nd); 
-//	path_put(&nd.path); 
 end:
 	/* we have to hold reference to nd until the end */
 	if (fname)

@@ -445,10 +445,11 @@ EXPORT_SYMBOL(shadow_res_put_lookup_path);
 
 char *shadow_res_get_last_name(struct nameidata *nd, struct path *child)
 {
-	/* if nd->last.name == "..", then child dentry holds correct name */
+	/* if child exists, child dentry holds right name from the parent */
 	if (child->dentry)
 		return child->dentry->d_name.name; 
 
+	/* otherwise, nd->last.name holds name where -ENOENT occurred */
 	return nd->last.name; 
 }
 EXPORT_SYMBOL(shadow_res_get_last_name); 

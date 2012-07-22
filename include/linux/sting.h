@@ -46,9 +46,9 @@ extern void sting_syscall_begin(void);
 
 #define STING_LOG_FILE "sting_log"
 extern struct rchan *sting_log_rchan;
-#define STING_LOG(...) { \
+#define STING_LOG(str, ...) { \
 	char *log_str = NULL; \
-	log_str = kasprintf(GFP_ATOMIC, __VA_ARGS__); \
+	log_str = kasprintf(GFP_ATOMIC, "[%s:%d]: " str, __FILE__, __LINE__, __VA_ARGS__); \
 	if (log_str) { \
 		current->sting_request++; \
 		relay_write(sting_log_rchan, log_str, strlen(log_str) + 1); \
