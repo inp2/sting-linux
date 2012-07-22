@@ -22,7 +22,7 @@ static ssize_t
 ept_dict_read(struct file *file, char __user *ubuf,
                        size_t count, loff_t *ppos)
 {
-	int nt, na;
+	int nt, na, n = 0;
 	char *s;
 
 	if (*ppos != 0)
@@ -32,8 +32,15 @@ ept_dict_read(struct file *file, char __user *ubuf,
 
 	s = kasprintf(GFP_KERNEL, "Adv access/total = [%d/%d]\n"
 			"See %s for full dictionary\n", na, nt, STING_LOG_FILE);
-    return simple_read_from_buffer(ubuf, count, ppos, s,
-			strlen(s) + 1);
+	if (s) {
+	    n = simple_read_from_buffer(ubuf, count, ppos, s, 
+				strlen(s) + 1);
+		kfree(s); 
+	} else {
+		n = -ENOMEM; 
+	}
+	
+	return n; 
 }
 
 static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
