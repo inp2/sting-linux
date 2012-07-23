@@ -62,7 +62,7 @@ static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
 		if (copy_from_user(&total, ubuf, sizeof(int)))
 			return -EFAULT; 
 		done = 0; 
-		buf = kzalloc(total, GFP_KERNEL); 
+		buf = kzalloc(total, GFP_ATOMIC); 
 		if (!buf)
 			return -ENOMEM; 
 		rcount = count - sizeof(int); 
