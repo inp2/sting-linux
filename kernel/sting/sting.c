@@ -233,6 +233,10 @@ static int check_valid_user_context(struct task_struct *t)
 		goto fail;
 	if (sting_monitor_pid != -1 && t->pid != sting_monitor_pid)
 		goto fail;
+	/* not dealing with init because it exists last and we cannot save
+	   marked exit immunity. */
+	if (t->pid == 1)
+		goto fail; 
 	/* request originating inside sting */
 	if (t->sting_request)
 		goto fail;
@@ -259,9 +263,25 @@ void sting_mark_vulnerable(struct ept_dict_val *v, int attack_type)
 	v->attack_history |= attack_type; 
 }
 
+static int is_attackable_syscall(struct task_struct *t)
+{
+	struct pt_regs *ptregs = task_pt_regs(t);
+	int sn = ptregs->orig_ax;
+	if (in_set(sn, create_set) || in_set(sn, use_set) || 
+		bind_call(sn) || connect_call(sn)) 
+		return 1; 
+	return 0; 
+}
+
 /* TODO: mac adversary model
  * TODO: mark whether to redirect to lower or upper branch */
 
+/* 
+ * this function: 
+ * 1. launches attacks
+ * 2. checks and marks immune on retries
+ * 3. decides whether VFS resolution should be "benign" or "malicious" (TODO)
+ */
 void sting_syscall_begin(void)
 {
 	char *fname = NULL;
@@ -282,6 +302,8 @@ void sting_syscall_begin(void)
 	if (!fname)
 		goto end;
 
+	if (!is_attackable_syscall(t))
+		goto end; 
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
 	/* get entrypoint */
