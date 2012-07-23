@@ -260,13 +260,16 @@ out:
 EXPORT_SYMBOL(check_already_attacked); 
 #endif 
 
-/* Call as superuser, as permissions for sticky dir etc.,
-   are not available to all */
 int set_attacked(char __user *filename, int follow)
 {
 	int tret = 0;
 	mm_segment_t old_fs = get_fs();
-
+	const struct cred *old_cred;
+	
+	/* Call as superuser, as permissions for labeling sticky dir etc.,
+	   are not available to all. */
+	old_cred = superuser_creds(); /* for labeling */
+	
 	/* TODO: The maximum length possible is XATTR_LIST_MAX */
 	if (!follow) {
 		STING_SYSCALL(tret = sys_lsetxattr(filename, ATTACKER_XATTR_STRING, ATTACKER_XATTR_VALUE, sizeof(ATTACKER_XATTR_VALUE), 0));
@@ -276,6 +279,11 @@ int set_attacked(char __user *filename, int follow)
 	if (tret == -ENOTSUPP) {
 		printk(KERN_INFO STING_MSG "Xattrs not supported!\n");
 	}
+
+	/* Restore original creds */
+	revert_creds(old_cred);
+
+	BUG_ON(current->cred != current->real_cred);
 	return tret;
 }
 
@@ -674,6 +682,11 @@ restore:
 			}
 			if (ret < 0) {
 				printk(KERN_INFO STING_MSG "Actual create %s failed!\n", tmp_f);
+			} else {
+				ret = set_attacked(filename, FOLLOW);
+				if (ret < 0) {
+					printk(KERN_INFO STING_MSG "Labeling target of %s failed: %d!\n", filename, ret);
+				}
 			}
 		}
 	} else {

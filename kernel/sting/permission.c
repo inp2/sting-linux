@@ -228,6 +228,38 @@ static void groups_sort(struct group_info *group_info)
 }
 
 
+struct cred *superuser_creds(void)
+{
+	struct cred *override_cred = NULL;
+	const struct cred *old_cred;
+	int ret = 0; 
+
+	override_cred = prepare_creds();
+	if (!override_cred) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	override_cred->uid = override_cred->gid = 0; 
+	override_cred->euid = override_cred->egid = 0; 
+	override_cred->fsuid = override_cred->fsgid = 0; 
+	override_cred->suid = override_cred->sgid = 0; 
+
+	cap_raise(override_cred->cap_effective, CAP_SYS_ADMIN); 
+	cap_raise(override_cred->cap_effective, CAP_DAC_READ_SEARCH);
+	cap_raise(override_cred->cap_effective, CAP_DAC_OVERRIDE);
+	cap_raise(override_cred->cap_effective, CAP_FOWNER);
+
+	old_cred = override_creds(override_cred); 
+
+	/* don't need alloc reference anymore */
+	put_cred(override_cred); 
+
+out:
+	return (ret < 0) ? (struct cred *) ERR_PTR(ret) : old_cred;
+}
+EXPORT_SYMBOL(superuser_creds); 	
+
 /**
  * set_creds() - Change the credentials of current process temporarily
  * @ug_list:		ug_list[0] is uid, ug_list[1] is gid,

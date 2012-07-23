@@ -24,5 +24,6 @@ static inline int sting_adversary(uid_t a, uid_t v)
 
 int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags); 
 struct cred *set_creds(uid_t *ug_list); 
+struct cred *superuser_creds(void); 
 
 extern uid_t uid_array[MAX_USERS][GRP_MEMB_MAX];
