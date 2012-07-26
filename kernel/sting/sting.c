@@ -18,6 +18,7 @@
 #include "launch_attack.h"
 #include "utility.h"
 #include "shadow_resolution.h"
+#include "interpreter_unwind.h"
 
 /* sting_log file */
 
@@ -146,6 +147,9 @@ static inline int valid_user_stack(struct user_stack_info *us)
 	return (us->trace.entries[0] != ULONG_MAX);
 }
 
+/* we have a simple list instead of a hash as the number of 
+ * current stings is small */
+
 static struct sting sting_list; 
 static struct rw_semaphore stings_rwlock; 
 
@@ -155,10 +159,13 @@ void sting_list_add(struct sting *st)
 	if (!news)
 		return; 
 	memcpy(news, st, sizeof(struct sting)); 
-	STING_LOG("added [%s:%lx] accessing [%s] to sting_list for " 
+	STING_LOG("added [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
 			"adversary [%d] and victim [%d]\n", 
-			current->comm, news->offset, news->path.dentry->d_name.name, 
-			uid_array[news->adv_uid_ind][0], current->cred->fsuid); 
+			current->comm, news->offset, 
+			news->int_filename, news->int_lineno, 
+			news->path.dentry->d_name.name, 
+			uid_array[news->adv_uid_ind][0], current->cred->fsuid
+			); 
 	down_write(&stings_rwlock); 
 	path_get(&news->path);
 	list_add_tail(&news->list, &sting_list.list); 
@@ -167,9 +174,11 @@ void sting_list_add(struct sting *st)
 
 void sting_list_del(struct sting *st)
 {
-	STING_LOG("deleted [%s:%lx] accessing [%s] to sting_list for " 
+	STING_LOG("deleted [%s:%lx:%s:%lu] accessing [%s] to sting_list for " 
 			"adversary [%d] and victim [%d]\n", 
-			current->comm, st->offset, st->path.dentry->d_name.name, 
+			current->comm, st->offset, 
+			st->int_filename, st->int_lineno, 
+			st->path.dentry->d_name.name, 
 			uid_array[st->adv_uid_ind][0], current->cred->fsuid); 
 	path_put(&st->path); 
 	down_write(&stings_rwlock); 
@@ -185,7 +194,9 @@ struct sting *sting_list_get(struct sting *st, int st_flags)
 		if ((st_flags & MATCH_PID) && (t->pid != st->pid))
 			continue; 
 		if ((st_flags & MATCH_EPT) && 
-				((t->ino != st->ino) || (t->offset != st->offset))) 
+				(((t->ino != st->ino) || (t->offset != st->offset)) || 
+				(strcmp(t->int_filename, st->int_filename)) || 
+				(t->int_lineno != st->int_lineno)))
 			continue; 
 		if ((st_flags & MATCH_DENTRY) && (t->path.dentry != st->path.dentry))
 			continue; 
@@ -205,6 +216,8 @@ void task_fill_sting(struct sting *st, struct task_struct *t)
 	st->pid = t->pid; 
 	st->offset = ept_offset_get(&t->user_stack); 
 	st->ino = ept_inode_get(&t->user_stack); 
+	strcpy(st->int_filename, int_ept_filename_get(&t->user_stack)); 
+	st->int_lineno = int_ept_lineno_get(&t->user_stack); 
 }
 
 static int __init sting_init(void)
@@ -233,7 +246,7 @@ static int check_valid_user_context(struct task_struct *t)
 		goto fail;
 	if (sting_monitor_pid != -1 && t->pid != sting_monitor_pid)
 		goto fail;
-	/* not dealing with init because it exists last and we cannot save
+	/* not dealing with init because it exits last and we cannot save
 	   marked exit immunity. */
 	if (t->pid == 1)
 		goto fail; 
@@ -276,6 +289,19 @@ static int is_attackable_syscall(struct task_struct *t)
 /* TODO: mac adversary model
  * TODO: mark whether to redirect to lower or upper branch */
 
+static inline void task_fill_ept_key(struct ept_dict_key *k, struct task_struct *t)
+{
+	k->ino = ept_inode_get(&t->user_stack);
+	k->offset = ept_offset_get(&t->user_stack);
+	if (t->user_stack.int_trace.nr_entries > 0) {
+		strcpy(k->int_filename, int_ept_filename_get(&t->user_stack)); 
+		k->int_lineno = int_ept_lineno_get(&t->user_stack); 
+	} else {
+		k->int_filename[0] = 0; 
+		k->int_lineno = 0; 
+	}
+}	
+
 /* 
  * this function: 
  * 1. launches attacks
@@ -310,6 +336,7 @@ void sting_syscall_begin(void)
 	user_unwind(t);
 	if (!valid_user_stack(&t->user_stack))
 		goto end;  /* change to put if moving below! */
+	user_interpreter_unwind(&t->user_stack); 
 
 	/* get adversary, scanning each binding */
 	shadow_res_init(AT_FDCWD, fname, 0, &nd); 
@@ -346,8 +373,8 @@ void sting_syscall_begin(void)
 			shadow_res_put_pc_paths(&parent, &child, sh_err); 
 
 			if (sting_valid_adversary(adv_uid_ind)) {
-				STING_LOG("adversary: %d for uid: %d and filename: %s\n", 
-					uid_array[adv_uid_ind][0], current->cred->fsuid, fname); 
+		//		STING_LOG("adversary: %d for uid: %d and filename: %s\n", 
+		//			uid_array[adv_uid_ind][0], current->cred->fsuid, fname); 
 				break; 
 			}
 		}
@@ -365,8 +392,8 @@ void sting_syscall_begin(void)
 	shadow_res_end(&nd); 
 
 	/* get ept dictionary record, initializing a new one if needed */
-	e.key.ino = ept_inode_get(&t->user_stack);
-	e.key.offset = ept_offset_get(&t->user_stack);
+
+	task_fill_ept_key(&e.key, t); 
 	r = ept_dict_lookup(&e.key);
 
 	if (r) {
@@ -389,6 +416,9 @@ void sting_syscall_begin(void)
 		r->val.dac.adversary_access = 1; 
 	}
 
+	STING_LOG("[%s,%lx,%s,%d,%d]\n", current->comm, r->key.offset, fname, r->val.dac.adversary_access); 
+
+	goto parent_put; 
 	if (!sting_valid_adversary(adv_uid_ind)) {
 		/* exit - raise this check above if performance needed */
 		goto parent_put;

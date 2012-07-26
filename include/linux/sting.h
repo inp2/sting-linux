@@ -70,11 +70,15 @@ extern struct rchan *sting_log_rchan;
 
 /* current attacks (stings) */
 
+#define INT_FNAME_MAX 32 
+
 struct sting {
 	struct list_head list; 
 	pid_t pid; 
 	ino_t ino; 
 	unsigned long offset; 
+	char int_filename[INT_FNAME_MAX]; 
+	unsigned long int_lineno; 
 	struct path path; 
 	int attack_type; 
 	int adv_uid_ind; /* TODO: mac */

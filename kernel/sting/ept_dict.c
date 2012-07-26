@@ -26,7 +26,7 @@ ept_dict_read(struct file *file, char __user *ubuf,
 	char *s;
 
 	if (*ppos != 0)
-		return -EINVAL; 
+		return 0; 
 
 	ept_dict_entries(&na, &nt);
 
@@ -138,7 +138,12 @@ static struct dict_val *ept_dict_val_get(struct dict_entry *e)
 
 static int ept_dict_key_cmp(struct dict_key *k1, struct dict_key *k2)
 {
-	return memcmp(k1, k2, sizeof(struct ept_dict_key));
+	struct ept_dict_key *kc1 = (struct ept_dict_key *) k1; 
+	struct ept_dict_key *kc2 = (struct ept_dict_key *) k2; 
+	return !((kc1->ino == kc2->ino) && 
+			(kc1->offset == kc2->offset) && 
+			(!strcmp(kc1->int_filename, kc2->int_filename)) && 
+			(kc1->int_lineno == kc2->int_lineno)); 
 }
 
 static int ept_dict_val_cmp(struct dict_val *v1, struct dict_val *v2)

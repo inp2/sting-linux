@@ -1,6 +1,12 @@
+#define INT_FNAME_MAX 32 
+
 struct ept_dict_key {
+	/* normal user ept */
 	ino_t ino;
 	unsigned long offset;
+	/* interpreter ept (assume first in stack) */
+	char int_filename[INT_FNAME_MAX]; 
+	unsigned long int_lineno; 
 };
 
 struct adv_model 

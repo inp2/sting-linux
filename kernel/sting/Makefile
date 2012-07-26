@@ -7,6 +7,7 @@ obj-y	+=	permission.o
 obj-y	+=	launch_attack.o
 obj-y	+=	utility.o
 obj-y	+=  shadow_resolution.o
+obj-y	+=	interpreter_unwind.o 
 ccflags-y := -Ikernel/sting/include
 
 # CFLAGS_ept_dict.o	:=	-O0
