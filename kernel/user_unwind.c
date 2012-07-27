@@ -804,10 +804,10 @@ EXPORT_SYMBOL(user_unwind);
 static int __init user_unwind_init(void)
 {
 	struct dentry *ld_inode_dentry;
-	ld_inode_dentry = debugfs_create_file("pft_ld_inode_num", 0600, NULL, NULL, &pft_ld_inode_fops);
+	ld_inode_dentry = debugfs_create_file("ld_inode", 0600, NULL, NULL, &pft_ld_inode_fops);
 
 	if (!ld_inode_dentry) {
-		STING_ERR(1, "Unable to create pft_ld_inode_num\n");
+		STING_ERR(1, "Unable to create ld_inode\n");
 	}
 	return 0;
 }
