@@ -26,7 +26,7 @@ ept_dict_read(struct file *file, char __user *ubuf,
 	char *s;
 
 	if (*ppos != 0)
-		return 0;
+		return -EINVAL; 
 
 	ept_dict_entries(&na, &nt);
 
@@ -46,7 +46,6 @@ ept_dict_read(struct file *file, char __user *ubuf,
 static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
 			size_t count, loff_t *ppos)
 {
-	/* ppos - actual number of bytes read */
 	/* done - position in buf to store */
 	/* rcount - number of bytes to store in buf */
 	/* total - total number of bytes to store in buf 
@@ -78,7 +77,6 @@ static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
 		return -EFAULT; 
 	}
 
-	*ppos += count; 
 	done += rcount; 
 
 	if (done == total) {
