@@ -36,7 +36,6 @@ static unsigned long __kptr;
 		})
 #define O(ps, m) (offsetof(typeof(*ps), m))
 
-#define EPT_VMA_OFFSET(addr, us) ((addr) + (us->vma_start[us->ept_ind]))
 #define MAX_INT_STR 32
 #define MAX_INT_VARS 32
 

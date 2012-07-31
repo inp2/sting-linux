@@ -91,3 +91,8 @@ struct sting {
 // extern void sting_list_add(struct sting *st); 
 // extern void sting_list_del(struct sting *st); 
 // extern struct sting *sting_list_get(struct sting *st, int flags); 
+
+
+/* goes into user_unwind.h */
+#define EPT_VMA_OFFSET(addr, us) ((addr) + (us->vma_start[us->ept_ind]))
+#define EPT_INO(t) (t->user_stack.vma_inoden[t->user_stack.ept_ind])
