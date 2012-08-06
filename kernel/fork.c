@@ -68,6 +68,7 @@
 #include <linux/oom.h>
 #include <linux/khugepaged.h>
 #include <linux/signalfd.h>
+#include <linux/sting.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -1360,7 +1361,17 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 #endif
 	#ifdef CONFIG_STING
 	p->sting_request = 0;
+	
+	if (on_script_behalf(&current->user_stack)) {
+		user_interpreter_unwind(&current->user_stack); 
+		copy_interpreter_info(p, current); 
+	} else {
+		p->user_stack.int_trace.nr_entries = 0; 
+		p->user_stack.int_trace.max_entries = USER_STACK_MAX; 
+	}
+	
 	#endif
+
 	retval = copy_namespaces(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_mm;

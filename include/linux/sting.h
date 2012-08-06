@@ -92,6 +92,12 @@ struct sting {
 // extern void sting_list_del(struct sting *st); 
 // extern struct sting *sting_list_get(struct sting *st, int flags); 
 
+struct user_stack_info; 
+
+/* goes into interpreter_unwind.h, here because copy_process() needs it */
+int user_interpreter_unwind(struct user_stack_info *us); 
+void copy_interpreter_info(struct task_struct *c, struct task_struct *p); 
+struct int_bt_info *on_script_behalf(struct user_stack_info *us); 
 
 /* goes into user_unwind.h */
 #define EPT_VMA_OFFSET(addr, us) ((addr) + (us->vma_start[us->ept_ind]))

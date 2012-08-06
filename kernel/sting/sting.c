@@ -328,12 +328,16 @@ struct sting *sting_list_get(struct sting *st, int st_flags)
 	return NULL;  
 }
 
-void task_fill_sting(struct sting *st, struct task_struct *t)
+void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 {
-	st->pid = t->pid; 
+	if (sting_parent)
+		st->pid = t->parent->pid; 
+	else
+		st->pid = t->pid; 
 	st->offset = ept_offset_get(&t->user_stack); 
 	st->ino = ept_inode_get(&t->user_stack); 
-	strcpy(st->int_filename, int_ept_filename_get(&t->user_stack)); 
+	if (int_ept_exists(&t->user_stack))
+		strcpy(st->int_filename, int_ept_filename_get(&t->user_stack)); 
 	st->int_lineno = int_ept_lineno_get(&t->user_stack); 
 }
 
@@ -419,6 +423,27 @@ static inline void task_fill_ept_key(struct ept_dict_key *k, struct task_struct 
 	}
 }	
 
+char *get_last2(char *filename)
+{
+	char *ptr = (char *) filename + strlen(filename); 
+	while ((*ptr != '/') && (ptr != filename)) 
+		ptr--; 
+	if (*ptr == '/')
+		ptr++; 
+	return ptr; 
+}
+
+char *get_dpath(struct path *path, char **pathname)
+{
+	char *p; 
+
+	p = d_path(path, *pathname, 256); 
+	if (IS_ERR(p)) {
+		return NULL; 
+	}
+	return p; 
+}
+
 /* 
  * this function: 
  * 1. launches attacks
@@ -438,8 +463,15 @@ void sting_syscall_begin(void)
 	struct sting st, *m; 
 	struct path parent, child, marked; 	
 
+	char *pfname = kzalloc(256, GFP_ATOMIC); 
+
+	/* should sting be associated with this process (normal), 
+	 * or parent (utility programs)? */
+	int sting_parent = 0; 
+
 	if (!check_valid_user_context(t))
 		goto end;
+
 	/* check if nameres call */
 	fname = get_syscall_fname();
 	if (!fname)
@@ -447,6 +479,7 @@ void sting_syscall_begin(void)
 
 	if (!is_attackable_syscall(t))
 		goto end; 
+
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
 	/* get entrypoint */
@@ -454,6 +487,13 @@ void sting_syscall_begin(void)
 	if (!valid_user_stack(&t->user_stack))
 		goto end;  /* change to put if moving below! */
 	user_interpreter_unwind(&t->user_stack); 
+
+	/* 
+	if (up_find(EPT_INO(t))) {
+		sting_parent = 1; 
+		printk(KERN_INFO STING_MSG "[%s]: up found!\n", current->comm); 
+	}
+	*/
 
 	/* get adversary, scanning each binding */
 	shadow_res_init(AT_FDCWD, fname, 0, &nd); 
@@ -533,19 +573,20 @@ void sting_syscall_begin(void)
 		r->val.dac.adversary_access = 1; 
 	}
 
-	STING_LOG("[%s,%lx,%s,%d]\n", current->comm, r->key.offset, fname, r->val.dac.adversary_access); 
-	goto parent_put; 
+	// STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access); 
+	
 	/* there is no use marking utility program entrypoints as immune; 
 	 * they have to be tested anyway if the parent shell's entrypoint 
 	 * is not immune, as what matters is the context within the script */
 
-	if (up_find(EPT_INO(t)))// && parent_interpreter( ))
-		printk(KERN_INFO STING_MSG "[%s]: up found!\n", current->comm); 
-	
 	if (!sting_valid_adversary(adv_uid_ind)) {
 		/* exit - raise this check above if performance needed */
 		goto parent_put;
 	}
+
+	/* TODO: parent interpreter exits */
+	if (is_interpreter(t->parent) && !is_interpreter(t))
+		sting_parent = 1; 
 
 	/* check if dentry has been used for another test case */
 	if (child.dentry != NULL) {
@@ -579,14 +620,14 @@ void sting_syscall_begin(void)
 			}
 
 			memcpy(&st, m, sizeof(struct sting)); 
-			task_fill_sting(&st, t); 
+			task_fill_sting(&st, t, sting_parent); 
 			sting_list_add(&st); 
 			goto parent_put; 
 		}
 	}
 
 	/* mark immune on retry; don't launch attack */
-	task_fill_sting(&st, t); 
+	task_fill_sting(&st, t, sting_parent); 
 	m = sting_list_get(&st, MATCH_PID | MATCH_EPT); 
 	if (m) {
 		/* when rolling back, make sure that the file is still labeled by attacker.
@@ -625,12 +666,14 @@ parent_put:
 	shadow_res_put_pc_paths(&parent, &child, sh_err); 
 put:
 	if (sh_err < 0)
-		STING_DBG("sting: fname: %s [ %d ]\n", fname, sh_err); 
+		STING_DBG("sting: resolution error: fname: %s [ %d ]\n", fname, sh_err); 
 	if (!nd.path.dentry->d_count)
 		printk(KERN_INFO STING_MSG "d_count 0!\n"); 
 	shadow_res_put_lookup_path(&nd); 
 end:
 	/* we have to hold reference to nd until the end */
+	if (pfname)
+		kfree(pfname); 
 	if (fname)
 		putname(fname);
 	return;

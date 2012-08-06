@@ -341,7 +341,7 @@ hash_search (const char *string, HASH_TABLE *table)
 			list; list = (BUCKET_CONTENTS *) A(list, O(list, next)))
 //  for (list = table->bucket_array ? table->bucket_array[bucket] : 0; list; list = list->next)
     {
-		strncpy_from_user(scratch_string, (char *) A(list, O(list, key)), INT_FNAME_MAX);
+		strncpy_from_user(scratch_string, (char *) A(list, O(list, key)), INT_FNAME_MAX - 1);
 		if (hv == (A(list, O(list, khash))) && (STREQ (scratch_string, string))) {
 			return (list);
 		}
@@ -417,7 +417,6 @@ array_reference(ARRAY *a, arrayind_t i)
 }
 
 
-
 /* Return the line number of the currently executing command. */
 int
 executing_line_number(struct user_stack_info *us)
@@ -483,7 +482,7 @@ int pft_bash_context(struct user_stack_info *us)
 			retval = array_reference (array_cell (var), i);
 			if (retval == NULL)
 				break;
-			strncpy_from_user(scratch_string, retval, INT_FNAME_MAX);
+			strncpy_from_user(scratch_string, retval, INT_FNAME_MAX - 1);
 			sscanf(retval, "%d", &lineno);
 			if (!strcmp(scratch_string, "0"))
 				break;
@@ -497,7 +496,7 @@ int pft_bash_context(struct user_stack_info *us)
 		retval = array_reference (array_cell (var), i);
 		if (retval == NULL)
 			break;
-		strncpy_from_user(scratch_string, retval, INT_FNAME_MAX);
+		strncpy_from_user(scratch_string, retval, INT_FNAME_MAX - 1);
 
 		us->int_trace.entries[us->int_trace.nr_entries] = lineno; 
 		strcpy(us->int_filename[us->int_trace.nr_entries], scratch_string);
@@ -531,7 +530,7 @@ int pft_php_context(struct user_stack_info *us)
 	while (ptr) {
 		if (A(ptr, O(ptr, op_array))) {
 			ptr2 = (void *) A(A(ptr, O(ptr, op_array)), O(ptr->op_array, filename));
-			strncpy_from_user(scratch_string, (void *) ptr2, INT_FNAME_MAX);
+			strncpy_from_user(scratch_string, (void *) ptr2, INT_FNAME_MAX - 1);
 			lineno = A(A(ptr, O(ptr, opline)), O(ptr->opline, lineno));
 		}
 		ptr = (zend_execute_data *) A(ptr, O(ptr, prev_execute_data));
@@ -573,24 +572,51 @@ struct int_bt_info *on_script_behalf(struct user_stack_info *us)
 
 	return NULL; 
 }
+EXPORT_SYMBOL(on_script_behalf); 
+
+/* TODO: locking user_stack as we are calling parent */
+int is_interpreter(struct task_struct *t)
+{
+	ino_t exe_ino = -1; 
+
+	if (!t->mm) 
+		return 0; 
+
+	down_read(&t->mm->mmap_sem); 
+	exe_ino = t->mm->exe_file->f_dentry->d_inode->i_ino; 
+	up_read(&t->mm->mmap_sem); 
+
+	return (bash_bt_info.ino == exe_ino || php_bt_info.ino == exe_ino); 
+}
+EXPORT_SYMBOL(is_interpreter); 
 
 int user_interpreter_unwind(struct user_stack_info *us)
 {
 	struct int_bt_info *int_info; 
 
-	us->int_trace.nr_entries = 0; 
-	us->int_trace.max_entries = USER_STACK_MAX; 
-
-	/* Don't bother if not an interpreter */
-	/* Also, bother only if this system call was done at
+	/* conserve existing (parent's) interpreter info if we are 
+	 * not ourselves an interpreter */
+	/* change only if this system call was done at
 	 * the behest of a script */
 	int_info = on_script_behalf(us); 
-	if (int_info)
+	if (int_info) {
+		us->int_trace.nr_entries = 0; 
+		us->int_trace.max_entries = USER_STACK_MAX; 
 		int_info->unwind(us); 
-
+	}
 	return 0; 
 }
 EXPORT_SYMBOL(user_interpreter_unwind);
+
+void copy_interpreter_info(struct task_struct *c, struct task_struct *p)
+{
+	if (p->user_stack.int_trace.nr_entries) {
+		c->user_stack.int_trace = p->user_stack.int_trace;
+		memcpy(c->user_stack.int_filename, p->user_stack.int_filename, 
+				USER_STACK_MAX * INT_FNAME_MAX); 
+	}
+}
+EXPORT_SYMBOL(copy_interpreter_info); 
 
 static int __init interpreter_bt_init(void) 
 {
