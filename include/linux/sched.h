@@ -1625,9 +1625,7 @@ struct task_struct {
 
 #ifdef CONFIG_STING
 	struct user_stack_info user_stack; 
-    unsigned long *sting_pending; 
-    int sting_pending_nr; 
-	int sting_request; 
+	int sting_request; /* are we already in a sting request? */
 #endif
 };
 
