@@ -336,6 +336,9 @@ void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 		st->pid = t->pid; 
 	st->offset = ept_offset_get(&t->user_stack); 
 	st->ino = ept_inode_get(&t->user_stack); 
+
+	/* parent's interpreter context is stored in child during fork, 
+	 * if child itself is not an interpreter */
 	if (int_ept_exists(&t->user_stack))
 		strcpy(st->int_filename, int_ept_filename_get(&t->user_stack)); 
 	st->int_lineno = int_ept_lineno_get(&t->user_stack); 
@@ -584,6 +587,7 @@ void sting_syscall_begin(void)
 		goto parent_put;
 	}
 
+	// goto parent_put;
 	/* TODO: parent interpreter exits */
 	if (is_interpreter(t->parent) && !is_interpreter(t))
 		sting_parent = 1; 
