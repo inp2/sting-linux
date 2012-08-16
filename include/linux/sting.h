@@ -102,3 +102,13 @@ struct int_bt_info *on_script_behalf(struct user_stack_info *us);
 /* goes into user_unwind.h */
 #define EPT_VMA_OFFSET(addr, us) ((addr) + (us->vma_start[us->ept_ind]))
 #define EPT_INO(t) (t->user_stack.vma_inoden[t->user_stack.ept_ind])
+
+/* from permission.h, used by unionfs */
+/* simple dac adversary */
+static inline int sting_adversary(uid_t a, uid_t v)
+{
+	/* adversary is not root and not victim */
+	return ((a != 0) && (a != v)); 
+}
+
+extern int sting_already_launched(struct dentry *dentry); 

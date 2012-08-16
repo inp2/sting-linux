@@ -15,13 +15,6 @@ static inline int sting_valid_adversary(int adv_uid_ind)
 	return ((adv_uid_ind >= 0) && (adv_uid_ind != UID_NO_MATCH));
 }
 
-/* simple dac adversary */
-static inline int sting_adversary(uid_t a, uid_t v)
-{
-	/* adversary is not root and not victim */
-	return ((a != 0) && (a != v)); 
-}
-
 int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags); 
 struct cred *set_creds(uid_t *ug_list); 
 struct cred *superuser_creds(void); 

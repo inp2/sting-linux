@@ -19,7 +19,6 @@
 int sting_launch_attack(char *fname, struct path *parent, 
 		int a_ind, int attack_type, struct path *marked); 
 // int check_already_attacked(char __user *filename, int follow); 
-extern int sting_already_launched(struct dentry *dentry); 
 
 static inline int sting_attack_checked(int attack_history, int attack_type)
 {

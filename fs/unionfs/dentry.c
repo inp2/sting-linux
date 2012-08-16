@@ -15,7 +15,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
+#include <linux/sting.h>
 #include "union.h"
 
 bool is_negative_lower(const struct dentry *dentry)
@@ -122,7 +122,8 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 		positive = 1;
 
 	/* if our dentry is valid, then validate all lower ones */
-	if (sbgen == dgen)
+	if ((sbgen == dgen)) // && !(&UNIONFS_D(dentry)->has_adversary)) // && !(dentry->d_inode && sting_already_launched(dentry) 
+		// && !sting_adversary(dentry->d_inode->i_uid, current->fsuid)))
 		goto validate_lowers;
 
 	/* The root entry should always be valid */
@@ -403,6 +404,7 @@ drop_lower_inodes:
 }
 
 struct dentry_operations unionfs_dops = {
+
 	.d_revalidate	= unionfs_d_revalidate,
 	.d_release	= unionfs_d_release,
 	.d_iput		= unionfs_d_iput,
