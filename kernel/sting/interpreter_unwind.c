@@ -499,7 +499,7 @@ int pft_bash_context(struct user_stack_info *us)
 		strncpy_from_user(scratch_string, retval, INT_FNAME_MAX - 1);
 
 		us->int_trace.entries[us->int_trace.nr_entries] = lineno; 
-		strcpy(us->int_filename[us->int_trace.nr_entries], scratch_string);
+		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries], scratch_string);
 		us->int_trace.nr_entries++; 
 		i++; 
 	}
@@ -535,7 +535,7 @@ int pft_php_context(struct user_stack_info *us)
 		}
 		ptr = (zend_execute_data *) A(ptr, O(ptr, prev_execute_data));
 		us->int_trace.entries[us->int_trace.nr_entries] = lineno; 
-		strcpy(us->int_filename[us->int_trace.nr_entries], scratch_string);
+		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries], scratch_string);
 		us->int_trace.nr_entries++; 
 	}
 
@@ -549,7 +549,7 @@ unsigned long backtrace_contains(struct user_stack_info *us,
 	int i = 0;
 	unsigned long addr = 0; 
 	while ((i < us->trace.nr_entries) && (us->trace.entries[i] != ULONG_MAX)) {
-		addr = (us->trace.entries[i] - us->vma_start[i]); 
+		addr = (us->trace.entries[i] - us->trace.vma_start[i]); 
 		if ((addr >= fn_st) && (addr < (fn_st + fn_len)))
 			return 1;
 		i++;
@@ -559,14 +559,14 @@ unsigned long backtrace_contains(struct user_stack_info *us,
 
 struct int_bt_info *on_script_behalf(struct user_stack_info *us)
 {
-	if (us->bin_ip_exists == 0)
+	if (us->trace.bin_ip_exists == 0)
 		return NULL; 
 
-	if (bash_bt_info.ino && (us->vma_inoden[us->ept_ind] == bash_bt_info.ino))
+	if (bash_bt_info.ino && (us->trace.vma_inoden[us->trace.ept_ind] == bash_bt_info.ino))
 		if (backtrace_contains(us, bash_bt_info.loop_fn, bash_bt_info.size))
 			return &bash_bt_info; 
 
-	if (php_bt_info.ino && us->vma_inoden[us->ept_ind] == php_bt_info.ino) 
+	if (php_bt_info.ino && us->trace.vma_inoden[us->trace.ept_ind] == php_bt_info.ino) 
 		if (backtrace_contains(us, php_bt_info.loop_fn, php_bt_info.size))
 			return &php_bt_info; 
 
@@ -612,7 +612,7 @@ void copy_interpreter_info(struct task_struct *c, struct task_struct *p)
 {
 	if (p->user_stack.int_trace.nr_entries) {
 		c->user_stack.int_trace = p->user_stack.int_trace;
-		memcpy(c->user_stack.int_filename, p->user_stack.int_filename, 
+		memcpy(c->user_stack.int_trace.int_filename, p->user_stack.int_trace.int_filename, 
 				USER_STACK_MAX * INT_FNAME_MAX); 
 	}
 }

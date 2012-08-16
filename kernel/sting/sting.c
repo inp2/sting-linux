@@ -251,12 +251,12 @@ fs_initcall(utility_progs_init);
 
 static inline ino_t ept_inode_get(struct user_stack_info *us)
 {
-	return us->vma_inoden[us->ept_ind];
+	return us->trace.vma_inoden[us->trace.ept_ind];
 }
 
 static unsigned long ept_offset_get(struct user_stack_info *us)
 {
-	return us->trace.entries[us->ept_ind] - us->vma_start[us->ept_ind];
+	return us->trace.entries[us->trace.ept_ind] - us->trace.vma_start[us->trace.ept_ind];
 }
 
 static inline int valid_user_stack(struct user_stack_info *us)

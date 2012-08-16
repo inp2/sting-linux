@@ -528,8 +528,10 @@ EXPORT_SYMBOL(vma_if_stack_ip);
 				vma->vm_file->f_dentry->d_inode->i_ino)) \
 		)
 
+/* fill in user stack trace entry with given ip, and also fill in its 
+	vm area inode and start address */
 static void update_us(struct task_struct *t, struct vm_area_struct *vma,
-		unsigned long ip)
+		unsigned long ip, unsigned long sp)
 {
 	struct user_stack_info *us;
 	int c;
@@ -546,26 +548,27 @@ static void update_us(struct task_struct *t, struct vm_area_struct *vma,
 		return;
 
 	us->trace.entries[c] = ip;
+	us->trace.stack_bases[c] = sp; 
 	if (t->mm->exe_file->f_dentry->d_inode->i_ino == vma_inode) {
 		/* Program entry */
-		if (!us->bin_ip_exists) {
+		if (!us->trace.bin_ip_exists) {
 			/* First program entry */
-			us->ept_ind = c;
-			us->bin_ip_exists = 1;
+			us->trace.ept_ind = c;
+			us->trace.bin_ip_exists = 1;
 		}
 	} else if (vma_inode == ld_inode) {
 		/* Dynamic loader/linker */
-		us->ept_ind = c;
-		us->bin_ip_exists = 0;
-	} else if (ld_inode == -1 && us->bin_ip_exists == 0) {
+		us->trace.ept_ind = c;
+		us->trace.bin_ip_exists = 0;
+	} else if (ld_inode == -1 && us->trace.bin_ip_exists == 0) {
 		/* Before ld_inode is loaded, assume any IP as loader IP
 		 * if program IP doesn't exist, to avoid errors later */
-		us->ept_ind = c;
-		us->bin_ip_exists = 0;
+		us->trace.ept_ind = c;
+		us->trace.bin_ip_exists = 0;
 	}
 	/* VMA start and inode */
-	us->vma_inoden[c] = vma_inode;
-	us->vma_start[c] = vma->vm_start;
+	us->trace.vma_inoden[c] = vma_inode;
+	us->trace.vma_start[c] = vma->vm_start;
 	us->trace.nr_entries++;
 }
 
@@ -574,10 +577,11 @@ static void vma_start_ino(struct task_struct *t)
 	struct user_stack_info *us = &(t->user_stack);
 	struct vm_area_struct *vma;
 	int i = 0;
-	unsigned long ip;
+	unsigned long ip, sp;
 
 	for (i = 0; i < us->trace.max_entries; i++) {
 		ip = us->trace.entries[i];
+		sp = us->trace.stack_bases[i]; 
 		if (ip == ULONG_MAX) {
 			us->trace.nr_entries = i;
 			break;
@@ -587,7 +591,7 @@ static void vma_start_ino(struct task_struct *t)
 			us->trace.nr_entries = i;
 			break;
 		}
-		update_us(t, vma, ip);
+		update_us(t, vma, ip, sp);
 	}
 
 	return;
@@ -620,8 +624,10 @@ static inline void __static_save_stack_trace_user(struct static_stack_trace *tra
 	const struct pt_regs *regs = task_pt_regs(current);
 	const void __user *fp = (const void __user *)regs->bp;
 
-	if (trace->nr_entries < trace->max_entries)
+	if (trace->nr_entries < trace->max_entries) {
+		trace->stack_bases[trace->nr_entries] = regs->bp; 
 		trace->entries[trace->nr_entries++] = regs->ip;
+	}
 
 	while (trace->nr_entries < trace->max_entries) {
 		struct stack_frame_user frame;
@@ -633,6 +639,8 @@ static inline void __static_save_stack_trace_user(struct static_stack_trace *tra
 		if ((unsigned long)fp < regs->sp)
 			break;
 		if (frame.ret_addr) {
+			trace->entries[trace->nr_entries] = 
+				(unsigned long) frame.next_fp; 
 			trace->entries[trace->nr_entries++] =
 				frame.ret_addr;
 		}
@@ -662,8 +670,8 @@ static inline void us_init(struct user_stack_info *us)
 {
 	us->trace.nr_entries = 0;
 	us->trace.max_entries = USER_STACK_MAX;
-	us->bin_ip_exists = 0;
-	us->ept_ind = 0;
+	us->trace.bin_ip_exists = 0;
+	us->trace.ept_ind = 0;
 }
 
 #define CHECK_PRINT_EXIT(f) { \
@@ -679,7 +687,7 @@ static inline void us_init(struct user_stack_info *us)
  *
  * Any trace should go back up to loader or program binary.
  * Successful run can be detected by checking if
- * t->user_stack.ept_ind is -1 or not.
+ * t->user_stack.trace.ept_ind is -1 or not.
  *
  * Do NOT call this function in improper contexts -
  * !t->mm, in_atomic(), in_irq(), in_interrupt(), irqs_disabled()
@@ -731,7 +739,7 @@ void user_unwind(struct task_struct *t)
 	/* Pin stack pages */
 	np_st = get_user_pages_range(t, vma->vm_start, (unw.cfa - vma->vm_start + 1), &stack_pgs);
 
-	do {
+	do { /* for each vm area */
 		vma = vma_if_exec_ip(unw.regs.ip, t);
 		if (IS_ERR(vma)) {
 			/* Kernel thread, not executable, or legitimate end */
@@ -743,7 +751,7 @@ void user_unwind(struct task_struct *t)
 			/* If only the binary itself doesn't have eh_frame, we can still get ept_ind */
 			if (t->user_stack.trace.nr_entries > 0 && IS_BIN_VMA(t, vma) &&
 				(t->user_stack.trace.nr_entries < t->user_stack.trace.max_entries)) {
-				update_us(t, vma, unw.regs.ip);
+				update_us(t, vma, unw.regs.ip, unw.regs.sp);
 			} else {
 				/* Else, do a full normal stack trace */
 
@@ -761,7 +769,7 @@ void user_unwind(struct task_struct *t)
 		np_ehf = get_user_pages_range(t, eh_start, eh_len, &eh_frame_pgs);
 		eh_frame_data((char *) eh_start, &ed);
 
-		do {
+		do { /* for each frame in the vm area */
 			if (STING_DBG_ON)
 				__show_unw_regs(&unw);
 
@@ -772,7 +780,7 @@ void user_unwind(struct task_struct *t)
 			unw_regs(&unw, &regs);
 
 			/* Update IP in user stack trace */
-			update_us(t, vma, unw.regs.ip);
+			update_us(t, vma, unw.regs.ip, unw.regs.sp);
 
 		} while (((ret = unw_step(&unw, &ed, stack_end, stack_start)) == 0) &&
 					(us->trace.nr_entries < us->trace.max_entries));

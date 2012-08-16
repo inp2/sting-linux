@@ -100,8 +100,8 @@ void copy_interpreter_info(struct task_struct *c, struct task_struct *p);
 struct int_bt_info *on_script_behalf(struct user_stack_info *us); 
 
 /* goes into user_unwind.h */
-#define EPT_VMA_OFFSET(addr, us) ((addr) + (us->vma_start[us->ept_ind]))
-#define EPT_INO(t) (t->user_stack.vma_inoden[t->user_stack.ept_ind])
+#define EPT_VMA_OFFSET(addr, us) ((addr) + (us->trace.vma_start[us->trace.ept_ind]))
+#define EPT_INO(t) (t->user_stack.trace.vma_inoden[t->user_stack.trace.ept_ind])
 
 /* from permission.h, used by unionfs */
 /* simple dac adversary */
