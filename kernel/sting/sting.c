@@ -129,67 +129,67 @@ static const struct file_operations sting_monitor_pid_fops = {
 /* file /sys/kernel/debug/utility_progs */
 
 #define MAX_UTIL_PROGS 32
-static int n_utility_progs = 0; 
+static int n_utility_progs = 0;
 static ino_t utility_progs[MAX_UTIL_PROGS];
 
 static int up_find(ino_t ino)
 {
-	int low = 0; 
-	int high = n_utility_progs; 
-	int mid; 
+	int low = 0;
+	int high = n_utility_progs;
+	int mid;
 
 	while (low < high) {
-		mid = (low + high) / 2; 
+		mid = (low + high) / 2;
 		if (utility_progs[mid] == ino)
-			return 1; 
+			return 1;
 		else if (utility_progs[mid] > ino)
-			high = mid; 
-		else 
-			low = mid + 1; 
+			high = mid;
+		else
+			low = mid + 1;
 	}
-	return 0; 
+	return 0;
 }
 
 static int up_cmp(const void *ap, const void *bp)
 {
-	const ino_t a = *(const ino_t *) ap; 
-	const ino_t b = *(const ino_t *) bp; 
-	
+	const ino_t a = *(const ino_t *) ap;
+	const ino_t b = *(const ino_t *) bp;
+
 	if (a > b)
-		return 1; 
+		return 1;
 	if (a < b)
-		return -1; 
-	return 0; 
+		return -1;
+	return 0;
 }
 
 /* example: 26484420 */
 static int up_line_load(char *data)
 {
-	utility_progs[n_utility_progs] = 
-		simple_strtoul(data, NULL, 0); 
+	utility_progs[n_utility_progs] =
+		simple_strtoul(data, NULL, 0);
 	if (!utility_progs[n_utility_progs])
-		return -EINVAL; 
-	n_utility_progs++; 
+		return -EINVAL;
+	n_utility_progs++;
 
-	return 0; 
+	return 0;
 }
 
 static int up_load(char *data, size_t len)
 {
-	char **r = &data; 
-	char *l = NULL; 
-	int ret = 0; 
+	char **r = &data;
+	char *l = NULL;
+	int ret = 0;
 
 	/* null terminate */
-	*(data + len - 1) = 0; 
+	*(data + len - 1) = 0;
 
 	/* separate into tokens */
 	while ((l = strsep(r, "\n"))) {
 		/* parse each line */
-		ret = up_line_load(l); 
+		ret = up_line_load(l);
 	}
 
-	return (ret == 0) ? len : ret; 
+	return (ret == 0) ? len : ret;
 }
 
 static ssize_t
@@ -213,10 +213,10 @@ utility_progs_write(struct file *filp, const char __user *buf,
 		goto out;
 
 	length = -EINVAL;
-	length = up_load(page, count); 
+	length = up_load(page, count);
 
-	if (length >= 0) 
-		sort(utility_progs, n_utility_progs, sizeof(ino_t), up_cmp, NULL); 
+	if (length >= 0)
+		sort(utility_progs, n_utility_progs, sizeof(ino_t), up_cmp, NULL);
 
 out:
 	free_page((unsigned long) page);
@@ -240,108 +240,91 @@ static int __init utility_progs_init(void)
 	}
 	return 0;
 }
-fs_initcall(utility_progs_init); 
+fs_initcall(utility_progs_init);
 
-/* list of ongoing attacks (status and rollback information). 
- * Since the number of attacks is small, a list suffices. 
+/* list of ongoing attacks (status and rollback information).
+ * Since the number of attacks is small, a list suffices.
  * TODO: If we find scenarios where performance is hit because
  * of this list, change.  */
 
-/* TODO: Below three functions should be in user_unwind.h */
-
-static inline ino_t ept_inode_get(struct user_stack_info *us)
-{
-	return us->trace.vma_inoden[us->trace.ept_ind];
-}
-
-static unsigned long ept_offset_get(struct user_stack_info *us)
-{
-	return us->trace.entries[us->trace.ept_ind] - us->trace.vma_start[us->trace.ept_ind];
-}
-
-static inline int valid_user_stack(struct user_stack_info *us)
-{
-	return (us->trace.entries[0] != ULONG_MAX);
-}
-
-/* we have a simple list instead of a hash as the number of 
+/* we have a simple list instead of a hash as the number of
  * current stings is small */
 
-static struct sting sting_list; 
-static struct rw_semaphore stings_rwlock; 
+static struct sting sting_list;
+static struct rw_semaphore stings_rwlock;
 
-void sting_list_add(struct sting *st) 
+void sting_list_add(struct sting *st)
 {
-	struct sting *news = kmalloc(sizeof(struct sting), GFP_KERNEL); 
+	struct sting *news = kmalloc(sizeof(struct sting), GFP_KERNEL);
 	if (!news)
-		return; 
-	memcpy(news, st, sizeof(struct sting)); 
+		return;
+	memcpy(news, st, sizeof(struct sting));
 	STING_LOG("added [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
-			"adversary [%d] and victim [%d]\n", 
-			current->comm, news->offset, 
-			news->int_filename, news->int_lineno, 
-			news->path.dentry->d_name.name, 
+			"adversary [%d] and victim [%d]\n",
+			current->comm, news->offset,
+			news->int_filename, news->int_lineno,
+			news->path.dentry->d_name.name,
 			uid_array[news->adv_uid_ind][0], current->cred->fsuid
-			); 
-	down_write(&stings_rwlock); 
+			);
+	down_write(&stings_rwlock);
 	path_get(&news->path);
-	list_add_tail(&news->list, &sting_list.list); 
-	up_write(&stings_rwlock); 
+	list_add_tail(&news->list, &sting_list.list);
+	up_write(&stings_rwlock);
 }
 
 void sting_list_del(struct sting *st)
 {
-	STING_LOG("deleted [%s:%lx:%s:%lu] accessing [%s] to sting_list for " 
-			"adversary [%d] and victim [%d]\n", 
-			current->comm, st->offset, 
-			st->int_filename, st->int_lineno, 
-			st->path.dentry->d_name.name, 
-			uid_array[st->adv_uid_ind][0], current->cred->fsuid); 
-	path_put(&st->path); 
-	down_write(&stings_rwlock); 
-	list_del(&st->list); 
-	up_write(&stings_rwlock); 
+	STING_LOG("deleted [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
+			"adversary [%d] and victim [%d]\n",
+			current->comm, st->offset,
+			st->int_filename, st->int_lineno,
+			st->path.dentry->d_name.name,
+			uid_array[st->adv_uid_ind][0], current->cred->fsuid);
+	path_put(&st->path);
+	down_write(&stings_rwlock);
+	list_del(&st->list);
+	up_write(&stings_rwlock);
 }
 
 struct sting *sting_list_get(struct sting *st, int st_flags)
 {
-	struct sting *t, *n; 
-	down_read(&stings_rwlock); 
+	struct sting *t, *n;
+	down_read(&stings_rwlock);
 	list_for_each_entry_safe(t, n, &sting_list.list, list) {
 		if ((st_flags & MATCH_PID) && (t->pid != st->pid))
-			continue; 
-		if ((st_flags & MATCH_EPT) && 
-				(((t->ino != st->ino) || (t->offset != st->offset)) || 
-				(strcmp(t->int_filename, st->int_filename)) || 
+			continue;
+		if ((st_flags & MATCH_EPT) &&
+				(((t->ino != st->ino) || (t->offset != st->offset)) ||
+				(strcmp(t->int_filename, st->int_filename)) ||
 				(t->int_lineno != st->int_lineno)))
-			continue; 
+			continue;
 		if ((st_flags & MATCH_DENTRY) && (t->path.dentry != st->path.dentry))
-			continue; 
+			continue;
 
 		/* match */
-		up_read(&stings_rwlock); 
-		return t; 
+		up_read(&stings_rwlock);
+		return t;
 	}
 
 	/* no match */
-	up_read(&stings_rwlock); 
-	return NULL;  
+	up_read(&stings_rwlock);
+	return NULL;
 }
 
 void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 {
 	if (sting_parent)
-		st->pid = t->parent->pid; 
+		st->pid = t->parent->pid;
 	else
-		st->pid = t->pid; 
-	st->offset = ept_offset_get(&t->user_stack); 
-	st->ino = ept_inode_get(&t->user_stack); 
+		st->pid = t->pid;
+	st->offset = ept_offset_get(&t->user_stack);
+	st->ino = ept_inode_get(&t->user_stack);
 
-	/* parent's interpreter context is stored in child during fork, 
+	/* parent's interpreter context is stored in child during fork,
 	 * if child itself is not an interpreter */
 	if (int_ept_exists(&t->user_stack))
-		strcpy(st->int_filename, int_ept_filename_get(&t->user_stack)); 
-	st->int_lineno = int_ept_lineno_get(&t->user_stack); 
+		strcpy(st->int_filename, int_ept_filename_get(&t->user_stack));
+	st->int_lineno = int_ept_lineno_get(&t->user_stack);
 }
 
 static int __init sting_init(void)
@@ -357,8 +340,8 @@ static int __init sting_init(void)
 	}
 
 	/* initialize linked list of ongoing stings */
-	INIT_LIST_HEAD(&sting_list.list); 
-	init_rwsem(&stings_rwlock); 
+	INIT_LIST_HEAD(&sting_list.list);
+	init_rwsem(&stings_rwlock);
 	return 0;
 }
 fs_initcall(sting_init);
@@ -373,7 +356,7 @@ static int check_valid_user_context(struct task_struct *t)
 	/* not dealing with init because it exits last and we cannot save
 	   marked exit immunity. */
 	if (t->pid == 1)
-		goto fail; 
+		goto fail;
 	/* request originating inside sting */
 	if (t->sting_request)
 		goto fail;
@@ -388,26 +371,26 @@ fail:
 
 void sting_mark_immune(struct ept_dict_entry *e, int attack_type)
 {
-	e->val.attack_history |= attack_type << 8; 
-	e->val.attack_history &= ~(attack_type); 
-	STING_LOG("marked immune [%s:%lx]\n", 
-			current->comm, e->key.offset); 
+	e->val.attack_history |= attack_type << 8;
+	e->val.attack_history &= ~(attack_type);
+	STING_LOG("marked immune [%s:%lx]\n",
+			current->comm, e->key.offset);
 }
 
 void sting_mark_vulnerable(struct ept_dict_val *v, int attack_type)
 {
-	v->attack_history |= attack_type << 8; 
-	v->attack_history |= attack_type; 
+	v->attack_history |= attack_type << 8;
+	v->attack_history |= attack_type;
 }
 
 static int is_attackable_syscall(struct task_struct *t)
 {
 	struct pt_regs *ptregs = task_pt_regs(t);
 	int sn = ptregs->orig_ax;
-	if (in_set(sn, create_set) || in_set(sn, use_set) || 
-		bind_call(sn) || connect_call(sn)) 
-		return 1; 
-	return 0; 
+	if (in_set(sn, create_set) || in_set(sn, use_set) ||
+		bind_call(sn) || connect_call(sn))
+		return 1;
+	return 0;
 }
 
 /* TODO: mac adversary model
@@ -418,37 +401,37 @@ static inline void task_fill_ept_key(struct ept_dict_key *k, struct task_struct 
 	k->ino = ept_inode_get(&t->user_stack);
 	k->offset = ept_offset_get(&t->user_stack);
 	if (t->user_stack.int_trace.nr_entries > 0) {
-		strcpy(k->int_filename, int_ept_filename_get(&t->user_stack)); 
-		k->int_lineno = int_ept_lineno_get(&t->user_stack); 
+		strcpy(k->int_filename, int_ept_filename_get(&t->user_stack));
+		k->int_lineno = int_ept_lineno_get(&t->user_stack);
 	} else {
-		k->int_filename[0] = 0; 
-		k->int_lineno = 0; 
+		k->int_filename[0] = 0;
+		k->int_lineno = 0;
 	}
-}	
+}
 
 char *get_last2(char *filename)
 {
-	char *ptr = (char *) filename + strlen(filename); 
-	while ((*ptr != '/') && (ptr != filename)) 
-		ptr--; 
+	char *ptr = (char *) filename + strlen(filename);
+	while ((*ptr != '/') && (ptr != filename))
+		ptr--;
 	if (*ptr == '/')
-		ptr++; 
-	return ptr; 
+		ptr++;
+	return ptr;
 }
 
 char *get_dpath(struct path *path, char **pathname)
 {
-	char *p; 
+	char *p;
 
-	p = d_path(path, *pathname, 256); 
+	p = d_path(path, *pathname, 256);
 	if (IS_ERR(p)) {
-		return NULL; 
+		return NULL;
 	}
-	return p; 
+	return p;
 }
 
-/* 
- * this function: 
+/*
+ * this function:
  * 1. launches attacks
  * 2. checks and marks immune on retries
  * 3. decides whether VFS resolution should be "benign" or "malicious" (TODO)
@@ -456,21 +439,21 @@ char *get_dpath(struct path *path, char **pathname)
 void sting_syscall_begin(void)
 {
 	char *fname = NULL;
-	int adv_uid_ind = UID_NO_MATCH; 
+	int adv_uid_ind = UID_NO_MATCH;
 	struct ept_dict_entry e, *r;
 	int ntest;
-	struct task_struct *t = current; 
-	struct nameidata nd; 
-	int lc = 0 /* last component? */, ctr = 0; 
-	int err = 0, sh_err = 0; 
-	struct sting st, *m; 
-	struct path parent, child, marked; 	
+	struct task_struct *t = current;
+	struct nameidata nd;
+	int lc = 0 /* last component? */, ctr = 0;
+	int err = 0, sh_err = 0;
+	struct sting st, *m;
+	struct path parent, child, marked;
 
-	char *pfname = kzalloc(256, GFP_ATOMIC); 
+	char *pfname = kzalloc(256, GFP_ATOMIC);
 
-	/* should sting be associated with this process (normal), 
+	/* should sting be associated with this process (normal),
 	 * or parent (utility programs)? */
-	int sting_parent = 0; 
+	int sting_parent = 0;
 
 	if (!check_valid_user_context(t))
 		goto end;
@@ -481,7 +464,7 @@ void sting_syscall_begin(void)
 		goto end;
 
 	if (!is_attackable_syscall(t))
-		goto end; 
+		goto end;
 
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
@@ -489,36 +472,36 @@ void sting_syscall_begin(void)
 	user_unwind(t);
 	if (!valid_user_stack(&t->user_stack))
 		goto end;  /* change to put if moving below! */
-	user_interpreter_unwind(&t->user_stack); 
+	user_interpreter_unwind(&t->user_stack);
 
-	/* 
+	/*
 	if (up_find(EPT_INO(t))) {
-		sting_parent = 1; 
-		printk(KERN_INFO STING_MSG "[%s]: up found!\n", current->comm); 
+		sting_parent = 1;
+		printk(KERN_INFO STING_MSG "[%s]: up found!\n", current->comm);
 	}
 	*/
 
 	/* get adversary, scanning each binding */
-	shadow_res_init(AT_FDCWD, fname, 0, &nd); 
+	shadow_res_init(AT_FDCWD, fname, 0, &nd);
 
 	while (nd.last_type == LAST_BIND || !lc) {
-		lc = shadow_res_advance_name(&fname, &ctr, &nd); 
+		lc = shadow_res_advance_name(&fname, &ctr, &nd);
 		if (lc < 0) {
 			/* can't recover from -ENOENT here, follow_link may
 			   not have updated nd->path */
-			sh_err = lc; 
+			sh_err = lc;
 			/* nothing to put */
-			goto end; 
+			goto end;
 		}
 		if (lc != 2) {
 			/* not already resolved by follow_link */
-			sh_err = shadow_res_resolve_name(&nd, &fname[ctr]); 
+			sh_err = shadow_res_resolve_name(&nd, &fname[ctr]);
 			if (sh_err < 0 && sh_err != -ENOENT) {
-				err = sh_err; 
-				goto put; 
+				err = sh_err;
+				goto put;
 			}
 		}
-		/* TODO: handle the case when the next component is a mountpoint  -- 
+		/* TODO: handle the case when the next component is a mountpoint  --
 		 we have to traverse up the mount to check binding delete permission. */
 
 		/* we check adversary permission only on last component */
@@ -526,60 +509,60 @@ void sting_syscall_begin(void)
 			if (IS_ROOT(nd.path.dentry))
 				continue;
 
-			shadow_res_get_pc_paths(&parent, &child, &nd, sh_err); 
+			shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
 
-			adv_uid_ind = sting_get_adversary(parent.dentry, child.dentry, ATTACKER_BIND); 
+			adv_uid_ind = sting_get_adversary(parent.dentry, child.dentry, ATTACKER_BIND);
 
-			shadow_res_put_pc_paths(&parent, &child, sh_err); 
+			shadow_res_put_pc_paths(&parent, &child, sh_err);
 
 			if (sting_valid_adversary(adv_uid_ind)) {
-		//		STING_LOG("adversary: %d for uid: %d and filename: %s\n", 
-		//			uid_array[adv_uid_ind][0], current->cred->fsuid, fname); 
-				break; 
+		//		STING_LOG("adversary: %d for uid: %d and filename: %s\n",
+		//			uid_array[adv_uid_ind][0], current->cred->fsuid, fname);
+				break;
 			}
 		}
 		if (sh_err == -ENOENT) {
-			/* component (non-last) doesn't exist -- if we have perm on parent, 
-			   even if not last component, we can create directory 
+			/* component (non-last) doesn't exist -- if we have perm on parent,
+			   even if not last component, we can create directory
 			   hierarchy -- we don't do this yet */
-			err = sh_err; 
-			goto put; 
+			err = sh_err;
+			goto put;
 		}
 	}
-	
-	shadow_res_get_pc_paths(&parent, &child, &nd, sh_err); 
 
-	shadow_res_end(&nd); 
+	shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
+
+	shadow_res_end(&nd);
 
 	/* get ept dictionary record, initializing a new one if needed */
 
-	task_fill_ept_key(&e.key, t); 
+	task_fill_ept_key(&e.key, t);
 	r = ept_dict_lookup(&e.key);
 
 	if (r) {
 		/* update ept dictionary */
 		/* TODO: protect modification (also see dict.c) */
-		r->val.ctr++; 
+		r->val.ctr++;
 	} else if (!r) {
 		/* insert into ept dictionary */
-		rdtscl(e.val.time); 
-		e.val.ctr = 1; 
-		strncpy(e.val.comm, current->comm, MAX_PROC_NAME); 
-		e.val.dac.adversary_access = 0; 
-		e.val.dac.ctr_first_adv = 0; 
+		rdtscl(e.val.time);
+		e.val.ctr = 1;
+		strncpy(e.val.comm, current->comm, MAX_PROC_NAME);
+		e.val.dac.adversary_access = 0;
+		e.val.dac.ctr_first_adv = 0;
 		e.val.attack_history = 0;
 		r = ept_dict_entry_set(&e.key, &e.val);
 	}
-	if ((!r->val.dac.adversary_access) && 
+	if ((!r->val.dac.adversary_access) &&
 			sting_valid_adversary(adv_uid_ind)) {
-		r->val.dac.ctr_first_adv = r->val.ctr; 
-		r->val.dac.adversary_access = 1; 
+		r->val.dac.ctr_first_adv = r->val.ctr;
+		r->val.dac.adversary_access = 1;
 	}
 
-	// STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access); 
-	
-	/* there is no use marking utility program entrypoints as immune; 
-	 * they have to be tested anyway if the parent shell's entrypoint 
+	// STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
+
+	/* there is no use marking utility program entrypoints as immune;
+	 * they have to be tested anyway if the parent shell's entrypoint
 	 * is not immune, as what matters is the context within the script */
 
 	if (!sting_valid_adversary(adv_uid_ind)) {
@@ -590,94 +573,94 @@ void sting_syscall_begin(void)
 	// goto parent_put;
 	/* TODO: parent interpreter exits */
 	if (is_interpreter(t->parent) && !is_interpreter(t))
-		sting_parent = 1; 
+		sting_parent = 1;
 
 	/* check if dentry has been used for another test case */
 	if (child.dentry != NULL) {
-		err = sting_already_launched(child.dentry); 
+		err = sting_already_launched(child.dentry);
 		if (err < 0)
-			goto parent_put; 
+			goto parent_put;
 
-		/* if so, add that test case to current ept. no need to 
+		/* if so, add that test case to current ept. no need to
 		 * launch attack */
 		if (err) {
 			/* already in use for another attack. add current
-			 * entrypoint to same attack if adversary. 
+			 * entrypoint to same attack if adversary.
 			 * TODO: if not, mark as redirect to lower branch.  */
-			st.path = child; 
-			m = sting_list_get(&st, MATCH_DENTRY); 
+			st.path = child;
+			m = sting_list_get(&st, MATCH_DENTRY);
 			if (!m) {
 				printk(KERN_INFO STING_MSG
-						"no attack in list although marked: [%s]\n", fname); 
-				goto parent_put; 
+						"no attack in list although marked: [%s]\n", fname);
+				goto parent_put;
 			}
-			/* if the attack was launched elsewhere, it means a new 
-			 * cross-entrypoint path is exercised, so it does not matter if 
+			/* if the attack was launched elsewhere, it means a new
+			 * cross-entrypoint path is exercised, so it does not matter if
 			 * we are immune to the same attack type _launched_ at our ept */
 			if (r && sting_attack_checked(r->val.attack_history, m->attack_type)) {
-				printk(KERN_INFO STING_MSG "new adversarial path\n"); 
+				printk(KERN_INFO STING_MSG "new adversarial path\n");
 			}
 			if (!sting_adversary(uid_array[m->adv_uid_ind][0], t->cred->fsuid)) {
 				printk(KERN_INFO STING_MSG
-						"another non-adversarial attack ongoing: [%s]\n", fname); 
-				goto parent_put; 
+						"another non-adversarial attack ongoing: [%s]\n", fname);
+				goto parent_put;
 			}
 
-			memcpy(&st, m, sizeof(struct sting)); 
-			task_fill_sting(&st, t, sting_parent); 
-			sting_list_add(&st); 
-			goto parent_put; 
+			memcpy(&st, m, sizeof(struct sting));
+			task_fill_sting(&st, t, sting_parent);
+			sting_list_add(&st);
+			goto parent_put;
 		}
 	}
 
 	/* mark immune on retry; don't launch attack */
-	task_fill_sting(&st, t, sting_parent); 
-	m = sting_list_get(&st, MATCH_PID | MATCH_EPT); 
+	task_fill_sting(&st, t, sting_parent);
+	m = sting_list_get(&st, MATCH_PID | MATCH_EPT);
 	if (m) {
 		/* when rolling back, make sure that the file is still labeled by attacker.
 		 * it might have been removed by the prog, we don't want to delete that.  */
 		/* delete only if the dentry refcount reaches 1 */
-		// sting_rollback(m->dentry); 
-		STING_LOG("[%s:%lx] retry immunity\n", t->comm, m->offset); 
-		sting_mark_immune(r, m->attack_type); 
-		sting_list_del(m); 
-		goto parent_put; 
+		// sting_rollback(m->dentry);
+		STING_LOG("[%s:%lx] retry immunity\n", t->comm, m->offset);
+		sting_mark_immune(r, m->attack_type);
+		sting_list_del(m);
+		goto parent_put;
 	}
 
 	/* get next attack */
-	ntest = sting_get_next_attack(r->val.attack_history); 
+	ntest = sting_get_next_attack(r->val.attack_history);
 	if (ntest == -1) {
 		/* all attacks tried */
-		goto parent_put; 
+		goto parent_put;
 	}
 
-	err = sting_launch_attack(shadow_res_get_last_name(&nd, &child), 
-			&parent, adv_uid_ind, ntest, &marked); 
+	err = sting_launch_attack(shadow_res_get_last_name(&nd, &child),
+			&parent, adv_uid_ind, ntest, &marked);
 	if (err < 0)
-		goto parent_put; 
-	
-	st.pid = t->pid; 
+		goto parent_put;
+
+	st.pid = t->pid;
 	st.ino = ept_inode_get(&t->user_stack);
 	st.offset = ept_offset_get(&t->user_stack);
-	st.path = marked; 
-	st.attack_type = ntest; 
-	st.adv_uid_ind = adv_uid_ind; 
+	st.path = marked;
+	st.attack_type = ntest;
+	st.adv_uid_ind = adv_uid_ind;
 
-	sting_list_add(&st); 
-	path_put(&marked); 
+	sting_list_add(&st);
+	path_put(&marked);
 
 parent_put:
-	shadow_res_put_pc_paths(&parent, &child, sh_err); 
+	shadow_res_put_pc_paths(&parent, &child, sh_err);
 put:
 	if (sh_err < 0)
-		STING_DBG("sting: resolution error: fname: %s [ %d ]\n", fname, sh_err); 
+		STING_DBG("sting: resolution error: fname: %s [ %d ]\n", fname, sh_err);
 	if (!nd.path.dentry->d_count)
-		printk(KERN_INFO STING_MSG "d_count 0!\n"); 
-	shadow_res_put_lookup_path(&nd); 
+		printk(KERN_INFO STING_MSG "d_count 0!\n");
+	shadow_res_put_lookup_path(&nd);
 end:
 	/* we have to hold reference to nd until the end */
 	if (pfname)
-		kfree(pfname); 
+		kfree(pfname);
 	if (fname)
 		putname(fname);
 	return;
@@ -687,35 +670,35 @@ EXPORT_SYMBOL(sting_syscall_begin);
 void sting_process_exit(void)
 {
 	/* mark pending sting entrypoints as immune */
-	struct sting st, *m = NULL; 
-	struct ept_dict_entry e, *r; 
+	struct sting st, *m = NULL;
+	struct ept_dict_entry e, *r;
 
-	st.pid = current->pid; 
+	st.pid = current->pid;
 
-	m = sting_list_get(&st, MATCH_PID); 
+	m = sting_list_get(&st, MATCH_PID);
 	while (m) {
-		e.key.ino = m->ino; 
-		e.key.offset = m->offset; 
+		e.key.ino = m->ino;
+		e.key.offset = m->offset;
 
 		r = ept_dict_lookup(&e.key);
 		if (!r) {
-			printk(KERN_INFO STING_MSG "pending sting [%lx:%lx] not in ept_dict!\n", 
-					e.key.ino, e.key.offset); 
-			goto out; 
+			printk(KERN_INFO STING_MSG "pending sting [%lx:%lx] not in ept_dict!\n",
+					e.key.ino, e.key.offset);
+			goto out;
 		}
 		/* when rolling back, make sure that the file is still labeled by attacker.
 		 * it might have been removed by the prog, we don't want to delete that.  */
 		/* delete only if the dentry refcount reaches 1 */
-		// sting_rollback(m->dentry); 
-		STING_LOG("[%s:%lx] exit immunity\n", r->val.comm, m->offset); 
-		sting_mark_immune(r, m->attack_type); 
-		sting_list_del(m); 
-	
+		// sting_rollback(m->dentry);
+		STING_LOG("[%s:%lx] exit immunity\n", r->val.comm, m->offset);
+		sting_mark_immune(r, m->attack_type);
+		sting_list_del(m);
+
 		/* get next sting */
-		m = sting_list_get(&st, MATCH_PID); 
-	} 
+		m = sting_list_get(&st, MATCH_PID);
+	}
 
 out:
-	return; 
+	return;
 }
-EXPORT_SYMBOL(sting_process_exit); 
+EXPORT_SYMBOL(sting_process_exit);
