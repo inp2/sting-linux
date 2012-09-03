@@ -1,3 +1,6 @@
+#ifndef _STING_H_
+#define _STING_H_
+
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/slab.h>
@@ -69,6 +72,25 @@ extern struct rchan *sting_log_rchan;
 	} \
 }
 
+/* unionfs-related */
+#define STING_ADV_BID 0
+
+/* status of current resolution */
+/* not applicable */
+#define NA_RES 	0
+/* only adversarial resource shown.
+ * for rollback. bstart = bend = 0. */
+#define ADV_RES 1
+/* only normal resource shown.
+ * for non-adversarial lookup, bstart = 1 */
+#define NORMAL_RES 2
+/* adversarial resource if available, else normal.
+ * for shadow resolution. bstart = 0 (traditional unionfs) */
+#define ADV_NORMAL_RES 3
+/* only adversarial resource, create as you go.
+ * for launch attacks. */
+#define LAUNCH_RES 4
+
 /* current attacks (stings) */
 
 #define INT_FNAME_MAX 32
@@ -132,3 +154,5 @@ static inline int sting_adversary(uid_t a, uid_t v)
 }
 
 extern int sting_already_launched(struct dentry *dentry);
+
+#endif

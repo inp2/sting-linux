@@ -94,7 +94,7 @@ struct sched_param {
 #include <linux/user_unwind.h>
 /* STINGTODO: Don't want to recompile everytime sting.h/user_unwind.h changes, so for now, copy these here */
 /* TODO: Make this a kernel config */
-#define CONFIG_STING 
+#define CONFIG_STING
 
 #include <asm/processor.h>
 
@@ -1364,9 +1364,9 @@ struct task_struct {
 	unsigned long stack_canary;
 #endif
 
-	/* 
+	/*
 	 * pointers to (original) parent process, youngest child, younger sibling,
-	 * older sibling, respectively.  (p->father can be replaced with 
+	 * older sibling, respectively.  (p->father can be replaced with
 	 * p->real_parent->pid)
 	 */
 	struct task_struct __rcu *real_parent; /* real parent process */
@@ -1624,8 +1624,9 @@ struct task_struct {
 #endif
 
 #ifdef CONFIG_STING
-	struct user_stack_info user_stack; 
+	struct user_stack_info user_stack;
 	int sting_request; /* are we already in a sting request? */
+	int sting_res_type; /* type of resolution */
 #endif
 };
 

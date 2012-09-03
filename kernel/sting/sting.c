@@ -466,6 +466,14 @@ void sting_syscall_begin(void)
 	if (!is_attackable_syscall(t))
 		goto end;
 
+	if (t->cred->fsuid == 0)
+		t->sting_res_type = ADV_RES;
+	else
+		t->sting_res_type = NORMAL_RES;
+
+	t->sting_res_type = NA_RES;
+	goto end;
+
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
 	/* get entrypoint */
