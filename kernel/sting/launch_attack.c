@@ -29,6 +29,7 @@
 #include "launch_attack.h"
 #include "syscalls.h"
 #include "permission.h"
+#include "interpreter_unwind.h"
 
 /* Internal flags */
 #define CREATE_FILE_NONEXISTENT 0x1
@@ -46,15 +47,15 @@
 #define TYPE_HARDLINK 0x1
 #define TYPE_SYMLINK 0x2
 
-/* 
- * STING: routines associated with attacks. 
- * to launch actual attacks, we use *at() family of system calls, 
+/*
+ * STING: routines associated with attacks.
+ * to launch actual attacks, we use *at() family of system calls,
  * passing the parent dentry we already resolved that is
- * adversary-accessible as a file. 
- * we choose not to directly call VFS, as there will be 
- * unnecessary duplication of complicated code for each system call. 
- * The exception is listxattr, which does not have an *at(), so 
- * we directly use VFS on the dentry. 
+ * adversary-accessible as a file.
+ * we choose not to directly call VFS, as there will be
+ * unnecessary duplication of complicated code for each system call.
+ * The exception is listxattr, which does not have an *at(), so
+ * we directly use VFS on the dentry.
  */
 
 char *get_last(char *filename)
@@ -173,18 +174,18 @@ int sting_already_launched(struct dentry *dentry)
 	size_t size = 0;
 	char *ptr = NULL;
 
-	if (!dentry) 
-		return 0; 
+	if (!dentry || !dentry->d_inode)
+		return 0;
 
 	STING_CALL(size = listxattr(dentry, &xattr_list, 0));
 	if (((int) size) < 0) {
-		tret = (int) size; 
+		tret = (int) size;
 		goto out;
 	}
 	STING_CALL(tret = listxattr(dentry, &xattr_list, size));
 	if (tret < 0) {
-		printk(KERN_INFO STING_MSG "xattr error: [%d]\n", tret); 
-		goto out; 
+		printk(KERN_INFO STING_MSG "xattr error: [%d]\n", tret);
+		goto out;
 	}
 
 	ptr = xattr_list;
@@ -204,7 +205,7 @@ out:
 		kfree(xattr_list);
 	return tret;
 }
-EXPORT_SYMBOL(sting_already_launched); 
+EXPORT_SYMBOL(sting_already_launched);
 
 #if 0
 int check_already_attacked(char __user *filename, int follow)
@@ -257,19 +258,19 @@ out:
 		kfree(xattr_list);
 	return tret;
 }
-EXPORT_SYMBOL(check_already_attacked); 
-#endif 
+EXPORT_SYMBOL(check_already_attacked);
+#endif
 
 int set_attacked(char __user *filename, int follow)
 {
 	int tret = 0;
 	mm_segment_t old_fs = get_fs();
 	const struct cred *old_cred;
-	
+
 	/* Call as superuser, as permissions for labeling sticky dir etc.,
 	   are not available to all. */
 	old_cred = superuser_creds(); /* for labeling */
-	
+
 	/* TODO: The maximum length possible is XATTR_LIST_MAX */
 	if (!follow) {
 		STING_SYSCALL(tret = sys_lsetxattr(filename, ATTACKER_XATTR_STRING, ATTACKER_XATTR_VALUE, sizeof(ATTACKER_XATTR_VALUE), 0));
@@ -662,9 +663,13 @@ restore:
 
 	if (ret == 0) {
 		/* Success! */
-		STING_LOG("Symlink SUCCESS!: %s, proc euid: %d attacker uid: %d, "
-				"process: %s, link to %s, system call: %d\n", filename,
-				current->cred->fsuid, uid_array[att_uid_ind][0],
+		STING_LOG("Symlink attack launched: [%s,%lx], script entrypoint: [%s,%d], "
+				"filename: [%s], proc euid: [%d], attacker uid: [%d], "
+				"process: [%s], link to [%s], system call: [%d]\n",
+				current->comm, ept_offset_get(&current->user_stack),
+				int_ept_exists(&current->user_stack) ? int_ept_filename_get(&current->user_stack) : "(null)",
+				int_ept_exists(&current->user_stack) ? int_ept_lineno_get(&current->user_stack) : 0,
+				filename, current->cred->fsuid, uid_array[att_uid_ind][0],
 				current->comm, tmp_f, sn);
 		/* Set xattr on attacker symlink */
 		ret = set_attacked(filename, DONT_FOLLOW);
@@ -722,7 +727,7 @@ static int get_attacked_path(char *fname, struct path *attacked)
 	return kern_path(fname, 0, attacked);
 }
 
-/* don't drop reference to old path. don't get reference to 
+/* don't drop reference to old path. don't get reference to
    new path */
 void temp_set_fs_pwd(struct fs_struct *fs, struct path *path)
 {
@@ -738,18 +743,18 @@ void temp_set_fs_pwd(struct fs_struct *fs, struct path *path)
 
 void temp_switch_cwd(struct path *new, struct path *old)
 {
-	get_fs_pwd(current->fs, old); 
-	temp_set_fs_pwd(current->fs, new); 
+	get_fs_pwd(current->fs, old);
+	temp_set_fs_pwd(current->fs, new);
 }
 
 void temp_restore_cwd(struct path *old)
 {
 	path_put(old); /* due to get_fs_pwd */
-	temp_set_fs_pwd(current->fs, old); 
+	temp_set_fs_pwd(current->fs, old);
 }
 
 /**
- * sting_launch_attack() - Launch attack 
+ * sting_launch_attack() - Launch attack
  * @fname:			Resource name (last component) relative to @parent
  * @parent:			Parent path
  * @a_ind:			Identity of attacker (index in uid_array)
@@ -757,14 +762,14 @@ void temp_restore_cwd(struct path *old)
  * @fpath:			path of attacked resource (to be filled in)
  */
 
-int sting_launch_attack(char *fname, struct path *parent, 
+int sting_launch_attack(char *fname, struct path *parent,
 		int a_ind, int attack_type, struct path *fpath)
 {
 	int tret = 0;
 	struct pt_regs *ptregs = task_pt_regs(current);
 	int sn = ptregs->orig_ax;
 
-	struct path old_cwd; 
+	struct path old_cwd;
 
 	#if 0
 	/* Cases of random filenames etc., allow through */
@@ -774,7 +779,7 @@ int sting_launch_attack(char *fname, struct path *parent,
 	#endif
 
 	/* chdir to parent, so syscalls reduce to their *at() versions */
-	temp_switch_cwd(parent, &old_cwd); 
+	temp_switch_cwd(parent, &old_cwd);
 
 	/* TODO: Can we model this in terms of in_set() alone? */
 	if (attack_type & SYMLINK) {
@@ -864,17 +869,17 @@ int sting_launch_attack(char *fname, struct path *parent,
 	/* get changed path */
 
 	if (tret == 0) {
-		int r; 
+		int r;
 		/* get reference to launched attack's dentry */
-		r = get_attacked_path(fname, fpath); 
+		r = get_attacked_path(fname, fpath);
 		if (r < 0) {
-			printk(KERN_INFO STING_MSG "Error getting dentry of already launched attack\n"); 
-			tret = r; 
+			printk(KERN_INFO STING_MSG "Error getting dentry of already launched attack\n");
+			tret = r;
 		}
 	}
 
 	/* restore cwd */
-	temp_restore_cwd(&old_cwd); 
+	temp_restore_cwd(&old_cwd);
 	return tret;
 }
 EXPORT_SYMBOL(sting_launch_attack);

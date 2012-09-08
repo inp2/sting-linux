@@ -6,6 +6,7 @@
 #include <linux/slab.h>
 #include <linux/path.h>
 #include <linux/user_unwind.h>
+#include <linux/lsm_audit.h>
 
 #define STING_MSG "sting: "
 
@@ -155,4 +156,5 @@ static inline int sting_adversary(uid_t a, uid_t v)
 
 extern int sting_already_launched(struct dentry *dentry);
 
+extern void sting_log_vulnerable_access(struct common_audit_data *a);
 #endif

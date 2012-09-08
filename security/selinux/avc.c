@@ -32,6 +32,7 @@
 #include "avc.h"
 #include "avc_ss.h"
 #include "classmap.h"
+#include <linux/sting.h>
 
 #define AVC_CACHE_SLOTS			512
 #define AVC_DEF_CACHE_THRESHOLD		512
@@ -567,7 +568,7 @@ inline int avc_audit(u32 ssid, u32 tsid,
  * @perms: permissions
  *
  * Register a callback function for events in the set @events
- * related to the SID pair (@ssid, @tsid) 
+ * related to the SID pair (@ssid, @tsid)
  * and the permissions @perms, interpreting
  * @perms based on @tclass.  Returns %0 on success or
  * -%ENOMEM if insufficient memory exists to add the callback.
@@ -856,6 +857,9 @@ int avc_has_perm_flags(u32 ssid, u32 tsid, u16 tclass,
 
 	rc2 = avc_audit(ssid, tsid, tclass, requested, &avd, rc, auditdata,
 			flags);
+
+	sting_log_vulnerable_access(auditdata);
+
 	if (rc2)
 		return rc2;
 	return rc;

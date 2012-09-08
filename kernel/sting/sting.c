@@ -11,6 +11,7 @@
 #include <linux/sort.h>
 
 #include <asm-generic/current.h>
+#include <asm/syscall.h>
 // #include <asm/msr.h>
 
 #include "ept_dict.h"
@@ -75,7 +76,7 @@ fs_initcall(sting_log_init);
 
 /* file /sys/kernel/debug/sting_monitor_pid for selective pid tracing */
 
-pid_t sting_monitor_pid = -1;
+pid_t sting_monitor_pid = 0;
 
 static ssize_t
 sting_monitor_pid_read(struct file *file, char __user *ubuf,
@@ -132,6 +133,7 @@ static const struct file_operations sting_monitor_pid_fops = {
 static int n_utility_progs = 0;
 static ino_t utility_progs[MAX_UTIL_PROGS];
 
+#if 0
 static int up_find(ino_t ino)
 {
 	int low = 0;
@@ -149,6 +151,7 @@ static int up_find(ino_t ino)
 	}
 	return 0;
 }
+#endif
 
 static int up_cmp(const void *ap, const void *bp)
 {
@@ -262,7 +265,8 @@ void sting_list_add(struct sting *st)
 	STING_LOG("added [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
 			"adversary [%d] and victim [%d]\n",
 			current->comm, news->offset,
-			news->int_filename, news->int_lineno,
+			int_ept_exists(&current->user_stack) ?  news->int_filename : "(null)",
+			int_ept_exists(&current->user_stack) ? news->int_lineno : 0,
 			news->path.dentry->d_name.name,
 			uid_array[news->adv_uid_ind][0], current->cred->fsuid
 			);
@@ -472,7 +476,6 @@ void sting_syscall_begin(void)
 		t->sting_res_type = NORMAL_RES;
 
 	t->sting_res_type = NA_RES;
-	goto end;
 
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
@@ -567,8 +570,6 @@ void sting_syscall_begin(void)
 		r->val.dac.adversary_access = 1;
 	}
 
-	// STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
-
 	/* there is no use marking utility program entrypoints as immune;
 	 * they have to be tested anyway if the parent shell's entrypoint
 	 * is not immune, as what matters is the context within the script */
@@ -577,6 +578,8 @@ void sting_syscall_begin(void)
 		/* exit - raise this check above if performance needed */
 		goto parent_put;
 	}
+
+	STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
 
 	// goto parent_put;
 	/* TODO: parent interpreter exits */
@@ -681,6 +684,9 @@ void sting_process_exit(void)
 	struct sting st, *m = NULL;
 	struct ept_dict_entry e, *r;
 
+	if (!check_valid_user_context(current))
+		return;
+
 	st.pid = current->pid;
 
 	m = sting_list_get(&st, MATCH_PID);
@@ -710,3 +716,72 @@ out:
 	return;
 }
 EXPORT_SYMBOL(sting_process_exit);
+
+struct dentry *dname_from_auditdata(struct common_audit_data *a, char *path)
+{
+    struct dentry *dentry = NULL;
+    struct inode *inode = NULL;
+
+    strcpy(path, "N/A");
+//  path = kstrdup("N/A", GFP_ATOMIC);
+    if (a) {
+        switch (a->type) {
+            case LSM_AUDIT_DATA_DENTRY: {
+                dentry = a->u.dentry;
+                inode = a->u.dentry->d_inode;
+                break;
+            }
+            case LSM_AUDIT_DATA_INODE: {
+                inode = a->u.inode;
+                dentry = d_find_alias(inode);
+                break;
+            }
+            case LSM_AUDIT_DATA_PATH: {
+                inode = a->u.path.dentry->d_inode;
+                dentry = d_find_alias(inode);
+                break;
+            }
+            default:
+            ;
+        }
+    }
+    if (dentry) {
+        strcpy(path, dentry->d_name.name);
+    }
+
+    return dentry;
+}
+
+void sting_log_vulnerable_access(struct common_audit_data *a)
+{
+	int sn = syscall_get_nr(current, task_pt_regs(current));
+	char *path = NULL;
+	struct dentry *d = NULL;
+
+	if (!check_valid_user_context(current))
+		return;
+
+	if (!a)
+		return;
+
+	path = __getname_gfp(GFP_ATOMIC);
+	if (!path)
+		return;
+
+	d = dname_from_auditdata(a, path);
+
+	if (d && sting_already_launched(d) &&
+			(in_set(sn, create_set) || in_set(sn, use_set))) {
+		STING_LOG("Vulnerable name resolution: process: [%s], file: [%s],"
+					"system call: [%d]\n",
+				current->comm, path, sn);
+	}
+	if (d) {
+        if (a->type == LSM_AUDIT_DATA_PATH ||
+            a->type == LSM_AUDIT_DATA_INODE)
+            dput(d);
+	}
+
+	__putname(path);
+}
+EXPORT_SYMBOL(sting_log_vulnerable_access);
