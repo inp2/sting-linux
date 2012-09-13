@@ -38,6 +38,8 @@ static inline struct unionfs_inode_info *UNIONFS_I(const struct inode *inode)
 #define dbstart(dent) (UNIONFS_D(dent)->bstart)
 #define dbend(dent) (UNIONFS_D(dent)->bend)
 #define dbopaque(dent) (UNIONFS_D(dent)->bopaque)
+#define tdbstart(dent) (UNIONFS_D(dent)->tbstart)
+#define tdbend(dent) (UNIONFS_D(dent)->tbend)
 
 /* Superblock to private data */
 #define UNIONFS_SB(super) ((struct unionfs_sb_info *)(super)->s_fs_info)

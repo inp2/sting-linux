@@ -61,6 +61,9 @@ static void unionfs_fill_inode(struct dentry *dentry,
 	if (S_ISDIR(lower_inode->i_mode))
 		inode->i_fop = &unionfs_dir_fops;
 
+	/* Reset inode flags, since we may have changed ops above */
+	inode->i_opflags = 0;
+
 	/* properly initialize special inodes */
 	if (S_ISBLK(lower_inode->i_mode) || S_ISCHR(lower_inode->i_mode) ||
 	    S_ISFIFO(lower_inode->i_mode) || S_ISSOCK(lower_inode->i_mode))

@@ -7,6 +7,10 @@
 #include <linux/path.h>
 #include <linux/user_unwind.h>
 #include <linux/lsm_audit.h>
+#include <linux/relay.h>
+
+#define STING_VULNERABLE 1
+#define STING_IMMUNE -1
 
 #define STING_MSG "sting: "
 
@@ -54,7 +58,7 @@ void sting_process_exit(void);
 extern struct rchan *sting_log_rchan;
 #define STING_LOG(str, ...) { \
 	char *log_str = NULL; \
-	log_str = kasprintf(GFP_ATOMIC, "[%s:%d]: " str, __FILE__, __LINE__, __VA_ARGS__); \
+	log_str = kasprintf(GFP_ATOMIC, "[%s:%d]: " str, __FILE__, __LINE__, ##__VA_ARGS__); \
 	if (log_str) { \
 		current->sting_request++; \
 		relay_write(sting_log_rchan, log_str, strlen(log_str) + 1); \
@@ -73,37 +77,27 @@ extern struct rchan *sting_log_rchan;
 	} \
 }
 
-/* unionfs-related */
-#define STING_ADV_BID 0
-
-/* status of current resolution */
-/* not applicable */
-#define NA_RES 	0
-/* only adversarial resource shown.
- * for rollback. bstart = bend = 0. */
-#define ADV_RES 1
-/* only normal resource shown.
- * for non-adversarial lookup, bstart = 1 */
-#define NORMAL_RES 2
-/* adversarial resource if available, else normal.
- * for shadow resolution. bstart = 0 (traditional unionfs) */
-#define ADV_NORMAL_RES 3
-/* only adversarial resource, create as you go.
- * for launch attacks. */
-#define LAUNCH_RES 4
-
 /* current attacks (stings) */
 
 #define INT_FNAME_MAX 32
 
 struct sting {
+	/* process info */
 	struct list_head list;
 	pid_t pid;
+	char comm[TASK_COMM_LEN];
 	ino_t ino;
 	unsigned long offset;
 	char int_filename[INT_FNAME_MAX];
 	unsigned long int_lineno;
+
+	/* rollback info */
 	struct path path;
+	ino_t path_ino; /* path->d_inode.i_ino */
+	struct path target_path; /* for symbolic link attacks */
+	ino_t target_path_ino; /* target_path->d_inode.i_ino */
+
+	/* sting info */
 	int attack_type;
 	int adv_uid_ind; /* TODO: mac */
 };
@@ -111,6 +105,7 @@ struct sting {
 #define MATCH_PID 		0x1
 #define MATCH_EPT 		0x2
 #define MATCH_DENTRY 	0x4
+#define MATCH_INO		0x8
 
 // extern void sting_list_add(struct sting *st);
 // extern void sting_list_del(struct sting *st);
@@ -157,4 +152,119 @@ static inline int sting_adversary(uid_t a, uid_t v)
 extern int sting_already_launched(struct dentry *dentry);
 
 extern void sting_log_vulnerable_access(struct common_audit_data *a);
+
+/* unionfs-related */
+
+#define STING_ADV_BID 0
+#define STING_NON_ADV_BID 1
+
+/* status of current resolution - marked during shadow resolution */
+
+#define RES_BRANCH_MASK 0xF
+/* default resolution */
+#define NA_RES 0x0
+/* only adversarial resource shown. for launch.
+ * bstart = bend = 0. Error if adversarial resource is not
+ * available. Used by launch attack and rollback
+ */
+#define ADV_RES 0x1
+/* adversarial resource if available, else normal.
+ * for shadow resolution. bstart = 0 (traditional unionfs) */
+#define ADV_NORMAL_RES 0x2
+/* only normal resource shown.
+ * non-adversarial last resource. */
+#define NORMAL_RES 0x4
+
+/* resolution intents, in addition to branch */
+/* in avc_has_perm, do not mark taint if called from sting. */
+#define RES_INTENT_MASK 0xF0
+#define LAUNCH_INT 0x10
+#define SHADOW_RES_INT 0x20
+#define ROLLBACK_INT   0x40
+#define NORMAL_RES_INT 0x80
+
+static inline void set_sting_res_type(struct task_struct *t, int type)
+{
+	t->sting_res_type = type;
+}
+
+static inline void set_sting_res_intent(struct task_struct *t, int flag)
+{
+	t->sting_res_type |= flag;
+}
+
+static inline int get_sting_res_type(struct task_struct *t)
+{
+	return (t->sting_res_type & RES_BRANCH_MASK);
+}
+
+static inline int get_sting_res_intent(struct task_struct *t)
+{
+	return (t->sting_res_type & RES_INTENT_MASK);
+}
+
+/* we limit ourselves to only two branches --
+ * STING_ADV_BID, STING_NON_ADV_BID */
+
+/* given lowest possible start */
+static inline int sting_res_branch_start(int cstart)
+{
+	switch(get_sting_res_type(current)) {
+		case ADV_RES:
+			BUG_ON(STING_ADV_BID < cstart);
+			return STING_ADV_BID;
+		case ADV_NORMAL_RES:
+			return (STING_ADV_BID < cstart) ? cstart : STING_ADV_BID;
+		case NA_RES:
+		case NORMAL_RES:
+			BUG_ON(STING_NON_ADV_BID < cstart);
+			return STING_NON_ADV_BID;
+		default:
+			BUG_ON(1);
+	}
+}
+
+/* given highest possible end */
+static inline int sting_res_branch_end(int cend)
+{
+	switch(get_sting_res_type(current)) {
+		case ADV_RES:
+			BUG_ON(STING_ADV_BID > cend);
+			return STING_ADV_BID;
+		case ADV_NORMAL_RES:
+			return (STING_NON_ADV_BID > cend) ? cend : STING_NON_ADV_BID;
+		case NA_RES:
+		case NORMAL_RES:
+			BUG_ON(STING_NON_ADV_BID > cend);
+			return STING_NON_ADV_BID;
+		default:
+			BUG_ON(1);
+	}
+}
+
+static inline int sdbstart(void)
+{
+	switch (get_sting_res_type(current)) {
+		case ADV_RES:
+		case ADV_NORMAL_RES:
+			return STING_ADV_BID;
+		case NORMAL_RES:
+			return STING_NON_ADV_BID;
+		default:
+			BUG_ON(1);
+	}
+}
+
+static inline int sdbend(void)
+{
+	switch (get_sting_res_type(current)) {
+		case ADV_RES:
+			return STING_ADV_BID;
+		case ADV_NORMAL_RES:
+		case NORMAL_RES:
+			return STING_NON_ADV_BID;
+		default:
+			BUG_ON(1);
+	}
+}
 #endif

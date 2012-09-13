@@ -34,7 +34,6 @@ static int readdir_util_callback(void *dirent, const char *oname, int namelen,
 {
 	int err = 0;
 	struct unionfs_rdutil_callback *buf = dirent;
-	int is_whiteout;
 	struct filldir_node *found;
 	char *name = (char *) oname;
 
@@ -44,6 +43,7 @@ static int readdir_util_callback(void *dirent, const char *oname, int namelen,
 			       (name[1] == '.' && namelen == 2)))
 		goto out;
 
+#if 0
 	is_whiteout = is_whiteout_name(&name, &namelen);
 
 	found = find_filldir_node(buf->rdstate, name, namelen, is_whiteout);
@@ -51,16 +51,17 @@ static int readdir_util_callback(void *dirent, const char *oname, int namelen,
 	if (found)
 		goto out;
 
+#endif
 	/*
 	 * if it wasn't found and isn't a whiteout, the directory isn't
 	 * empty.
 	 */
 	err = -ENOTEMPTY;
-	if ((buf->mode == RD_CHECK_EMPTY) && !is_whiteout)
+	if ((buf->mode == RD_CHECK_EMPTY)) // && !is_whiteout)
 		goto out;
 
 	err = add_filldir_node(buf->rdstate, name, namelen,
-			       buf->rdstate->bindex, is_whiteout);
+			       buf->rdstate->bindex, 0); //is_whiteout);
 
 out:
 	buf->err = err;
@@ -77,7 +78,7 @@ int check_empty(struct dentry *dentry, struct dentry *parent,
 	struct super_block *sb;
 	struct file *lower_file;
 	struct unionfs_rdutil_callback *buf = NULL;
-	int bindex, bstart, bend, bopaque;
+	int bindex, bstart, bend; // , bopaque;
 
 	sb = dentry->d_sb;
 
@@ -90,9 +91,9 @@ int check_empty(struct dentry *dentry, struct dentry *parent,
 
 	bstart = dbstart(dentry);
 	bend = dbend(dentry);
-	bopaque = dbopaque(dentry);
-	if (0 <= bopaque && bopaque < bend)
-		bend = bopaque;
+	// bopaque = dbopaque(dentry);
+	// if (0 <= bopaque && bopaque < bend)
+//		bend = bopaque;
 
 	buf = kmalloc(sizeof(struct unionfs_rdutil_callback), GFP_KERNEL);
 	if (unlikely(!buf)) {

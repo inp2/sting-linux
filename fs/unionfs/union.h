@@ -118,6 +118,17 @@ struct unionfs_inode_info {
 };
 
 /* unionfs dentry data in memory */
+/*
+ * Since we need to show only those dentry branches that an adversary
+ * should view, we may need to "expand" and "shrink" dentries to suit
+ * the adversary view. However, this means revalidation. The common case
+ * is no resource on top branch, so we keep track of the "tried" branch
+ * ranges on lookup(). Keeping track of "tried" branch
+ * prevents the need for expansion. Expanded view is needed during shadow
+ * resolution (to see if an attack already exists), so we know to present
+ * a combination of adversarial and normal or only normal resource.
+ */
+
 struct unionfs_dentry_info {
 	/*
 	 * The semaphore is used to lock the dentry as soon as we get into a
@@ -125,10 +136,13 @@ struct unionfs_dentry_info {
 	 * go before their parents.
 	 */
 	struct mutex lock;
-	int bstart;
-	int bend;
+	int bstart; /* the actual bstart */
+	int bend; /* the actual bend */
 	int bopaque;
 	int bcount;
+	int tbstart; /* the attempted bstart in lookup */
+	int tbend; /* the attempted bend in lookup */
+
 	atomic_t generation;
 	struct path *lower_paths;
 };

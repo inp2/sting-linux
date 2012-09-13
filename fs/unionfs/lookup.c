@@ -16,6 +16,7 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/sting.h>
 #include "union.h"
 
 /*
@@ -287,7 +288,7 @@ void release_lower_nd(struct nameidata *nd, int err)
  * dentry's info, which the caller must unlock.
  */
 struct dentry *unionfs_lookup_full(struct dentry *dentry,
-				   struct dentry *parent, int lookupmode)
+				struct dentry *parent, int lookupmode)
 {
 	int err = 0;
 	struct dentry *lower_dentry = NULL;
@@ -328,14 +329,16 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	}
 
 	/* Now start the actual lookup procedure. */
-	bstart = dbstart(parent);
-	bend = dbend(parent);
-	bopaque = dbopaque(parent);
+	bstart = sting_res_branch_start(dbstart(parent));
+	bend = sting_res_branch_end(dbend(parent));
+
+//	bopaque = (nd->flags & LOOKUP_LAST) ?
+//				sting_res_branch_start(dbopaque(parent)) : dbopaque(parent);
 	BUG_ON(bstart < 0);
 
 	/* adjust bend to bopaque if needed */
-	if ((bopaque >= 0) && (bopaque < bend))
-		bend = bopaque;
+//	if ((bopaque >= 0) && (bopaque < bend))
+//		bend = bopaque;
 
 	/* lookup all possible dentries */
 	for (bindex = bstart; bindex <= bend; bindex++) {
@@ -365,6 +368,7 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 			continue; /* XXX: should be BUG_ON */
 
 		/* check for whiteouts: stop lookup if found */
+		#if 0
 		wh_lower_dentry = lookup_whiteout(name, lower_dir_dentry);
 		if (IS_ERR(wh_lower_dentry)) {
 			err = PTR_ERR(wh_lower_dentry);
@@ -378,7 +382,7 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 			break;
 		}
 		dput(wh_lower_dentry);
-
+		#endif
 		/* Now do regular lookup; lookup @name */
 		lower_dir_mnt = unionfs_lower_mnt_idx(parent, bindex);
 		lower_mnt = NULL; /* XXX: needed? */
@@ -416,6 +420,7 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 		 */
 		if (!S_ISDIR(lower_dentry->d_inode->i_mode))
 			continue;
+		#if 0
 		opaque = is_opaque_dir(dentry, bindex);
 		if (opaque < 0) {
 			err = opaque;
@@ -425,7 +430,7 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 			break;
 		}
 		dbend(dentry) = bindex;
-
+		#endif
 		/* update parent directory's atime with the bindex */
 		fsstack_copy_attr_atime(parent->d_inode,
 					lower_dir_dentry->d_inode);
@@ -457,8 +462,8 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 		 * branch, then create a negative dentry for a possibly new
 		 * file to be created.
 		 */
-		if (dbopaque(dentry) < 0)
-			goto out;
+		// if (dbopaque(dentry) < 0)
+//			goto out;
 		/* XXX: need to get mnt here */
 		bindex = dbstart(dentry);
 		if (unionfs_lower_dentry_idx(dentry, bindex))
@@ -555,6 +560,9 @@ out_free:
 	UNIONFS_D(dentry)->lower_paths = NULL;
 
 out:
+	tdbstart(dentry) = sdbstart();
+	tdbend(dentry) = sdbend();
+
 	if (dentry && UNIONFS_D(dentry)) {
 		BUG_ON(dbstart(dentry) < 0 && dbend(dentry) >= 0);
 		BUG_ON(dbstart(dentry) >= 0 && dbend(dentry) < 0);

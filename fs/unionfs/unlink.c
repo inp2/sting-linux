@@ -17,6 +17,7 @@
  */
 
 #include "union.h"
+#include <linux/sting.h>
 
 /*
  * Helper function for Unionfs's unlink operation.
@@ -44,20 +45,30 @@
  *     as as per Documentation/filesystems/unionfs/concepts.txt).
  *
  */
-static int unionfs_unlink_whiteout(struct inode *dir, struct dentry *dentry,
+static int ___unionfs_unlink(struct inode *dir, struct dentry *dentry,
 				   struct dentry *parent)
 {
 	struct dentry *lower_dentry;
 	struct dentry *lower_dir_dentry;
 	int bindex;
 	int err = 0;
+	int bstart, bend;
+	int deleted = 0; /* was at least one object deleted? */
 
 	err = unionfs_partial_lookup(dentry, parent);
 	if (err)
 		goto out;
 
-	/* trying to unlink all possible valid instances */
-	for (bindex = dbstart(dentry); bindex <= dbend(dentry); bindex++) {
+	/* sting: if a victim deletes topmost branch,
+	 * delete all other branches also */
+	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+		bstart = dbstart(dentry);
+		bend = dbend(dentry);
+	} else {
+		bstart = bend = dbstart(dentry);
+	}
+
+	for (bindex = bstart; bindex <= bend; bindex++) {
 		lower_dentry = unionfs_lower_dentry_idx(dentry, bindex);
 		if (!lower_dentry || !lower_dentry->d_inode)
 			continue;
@@ -79,6 +90,8 @@ static int unionfs_unlink_whiteout(struct inode *dir, struct dentry *dentry,
 			lockdep_on();
 		}
 
+		if (!err)
+			deleted = 1;
 		/* if lower object deletion succeeds, update inode's times */
 		if (!err)
 			unionfs_copy_attr_times(dentry->d_inode);
@@ -86,10 +99,20 @@ static int unionfs_unlink_whiteout(struct inode *dir, struct dentry *dentry,
 		fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
 		unlock_dir(lower_dir_dentry);
 
-		if (err)
+		if (err) {
+			if (deleted == 1) {
+				/* sting: we deleted upper file but lower
+				   caused errors (e.g., non-empty directory)
+				   it is as if
+				   a benign process created lower entry
+				   after we deleted the upper file. */
+				err = 0;
+			}
 			break;
+		}
 	}
 
+#if 0
 	/*
 	 * Create the whiteout in branch 0 (highest priority) only if (a)
 	 * there was an error in any intermediate branch other than branch 0
@@ -108,14 +131,14 @@ static int unionfs_unlink_whiteout(struct inode *dir, struct dentry *dentry,
 			err = create_whiteout(dentry, sbstart(dentry->d_sb));
 		}
 	}
-
+#endif
 out:
 	if (!err)
 		inode_dec_link_count(dentry->d_inode);
 
 	/* We don't want to leave negative leftover dentries for revalidate. */
-	if (!err && (dbopaque(dentry) != -1))
-		update_bstart(dentry);
+//	if (!err && (dbopaque(dentry) != -1))
+//		update_bstart(dentry);
 
 	return err;
 }
@@ -139,7 +162,8 @@ int unionfs_unlink(struct inode *dir, struct dentry *dentry)
 	}
 	unionfs_check_dentry(dentry);
 
-	err = unionfs_unlink_whiteout(dir, dentry, parent);
+
+	err = ___unionfs_unlink(dir, dentry, parent);
 	/* call d_drop so the system "forgets" about us */
 	if (!err) {
 		unionfs_postcopyup_release(dentry);
@@ -171,30 +195,71 @@ static int unionfs_rmdir_first(struct inode *dir, struct dentry *dentry,
 	int err;
 	struct dentry *lower_dentry;
 	struct dentry *lower_dir_dentry = NULL;
-
+	int bstart, bend, bindex;
+	int deleted = 0; /* was at least one object deleted? */
+#if 0
 	/* Here we need to remove whiteout entries. */
 	err = delete_whiteouts(dentry, dbstart(dentry), namelist);
 	if (err)
 		goto out;
+#endif
 
-	lower_dentry = unionfs_lower_dentry(dentry);
+	/* sting: if a victim deletes topmost branch,
+	 * delete all other branches also */
+	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+		bstart = dbstart(dentry);
+		bend = dbend(dentry);
+	} else {
+		bstart = bend = dbstart(dentry);
+	}
 
-	lower_dir_dentry = lock_parent(lower_dentry);
+	for (bindex = bstart; bindex <= bend; bindex++) {
+		lower_dentry = unionfs_lower_dentry_idx(dentry, bindex);
+		if (!lower_dentry || !lower_dentry->d_inode)
+			continue;
 
-	/* avoid destroying the lower inode if the file is in use */
-	dget(lower_dentry);
-	err = is_robranch(dentry);
-	if (!err)
-		err = vfs_rmdir(lower_dir_dentry->d_inode, lower_dentry);
-	dput(lower_dentry);
+		lower_dir_dentry = lock_parent(lower_dentry);
 
-	fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
-	/* propagate number of hard-links */
-	set_nlink(dentry->d_inode, unionfs_get_nlinks(dentry->d_inode));
+		/* avoid destroying the lower inode if the file is in use */
+		dget(lower_dentry);
+		err = is_robranch_super(dentry->d_sb, bindex);
+		if (!err) {
+			/* see Documentation/filesystems/unionfs/issues.txt */
+			lockdep_off();
+			if (!S_ISDIR(lower_dentry->d_inode->i_mode))
+				err = vfs_unlink(lower_dir_dentry->d_inode,
+								lower_dentry);
+			else
+				err = vfs_rmdir(lower_dir_dentry->d_inode,
+								lower_dentry);
+			lockdep_on();
+		}
+		dput(lower_dentry);
 
-out:
-	if (lower_dir_dentry)
-		unlock_dir(lower_dir_dentry);
+		if (!err)
+			deleted = 1;
+		/* if lower object deletion succeeds, update inode's times */
+		if (!err)
+			unionfs_copy_attr_times(dentry->d_inode);
+		// fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
+		/* propagate number of hard-links */
+		set_nlink(dentry->d_inode, unionfs_get_nlinks(dentry->d_inode));
+
+		if (lower_dir_dentry)
+			unlock_dir(lower_dir_dentry);
+
+		if (err) {
+			if (deleted == 1) {
+				/* sting: we deleted upper dir but lower
+				   caused errors. it is as if
+				   a benign process created lower entry
+				   after we deleted the upper dir. */
+				err = 0;
+			}
+			break;
+		}
+	}
+
 	return err;
 }
 
@@ -205,6 +270,7 @@ int unionfs_rmdir(struct inode *dir, struct dentry *dentry)
 	struct dentry *parent;
 	int dstart, dend;
 	bool valid;
+	int vul;
 
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
 	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
@@ -225,6 +291,8 @@ int unionfs_rmdir(struct inode *dir, struct dentry *dentry)
 	err = unionfs_rmdir_first(dir, dentry, namelist);
 	dstart = dbstart(dentry);
 	dend = dbend(dentry);
+
+	#if 0
 	/*
 	 * We create a whiteout for the directory if there was an error to
 	 * rmdir the first directory entry in the union.  Otherwise, we
@@ -250,7 +318,7 @@ int unionfs_rmdir(struct inode *dir, struct dentry *dentry)
 		if (new_err != -EEXIST)
 			err = new_err;
 	}
-
+	#endif
 out:
 	/*
 	 * Drop references to lower dentry/inode so storage space for them

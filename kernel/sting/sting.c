@@ -261,6 +261,9 @@ void sting_list_add(struct sting *st)
 	struct sting *news = kmalloc(sizeof(struct sting), GFP_KERNEL);
 	if (!news)
 		return;
+
+	st->path_ino = st->path.dentry->d_inode->i_ino; /* for ease of comparison */
+
 	memcpy(news, st, sizeof(struct sting));
 	STING_LOG("added [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
 			"adversary [%d] and victim [%d]\n",
@@ -304,6 +307,10 @@ struct sting *sting_list_get(struct sting *st, int st_flags)
 			continue;
 		if ((st_flags & MATCH_DENTRY) && (t->path.dentry != st->path.dentry))
 			continue;
+		if ((st_flags & MATCH_INO) &&
+				(t->path.dentry->d_inode->i_ino != st->path_ino))
+			continue;
+
 
 		/* match */
 		up_read(&stings_rwlock);
@@ -323,7 +330,7 @@ void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 		st->pid = t->pid;
 	st->offset = ept_offset_get(&t->user_stack);
 	st->ino = ept_inode_get(&t->user_stack);
-
+	get_task_comm(st->comm, t);
 	/* parent's interpreter context is stored in child during fork,
 	 * if child itself is not an interpreter */
 	if (int_ept_exists(&t->user_stack))
@@ -350,12 +357,22 @@ static int __init sting_init(void)
 }
 fs_initcall(sting_init);
 
+static inline int ancestor_pid(struct task_struct *t, pid_t sting_monitor_pid)
+{
+	while (t->pid >= 1) {
+		if (t->pid == sting_monitor_pid)
+			return true;
+		t = t->parent;
+	}
+	return false;
+}
+
 /* sting hooks and actions */
 static int check_valid_user_context(struct task_struct *t)
 {
 	if (!t->mm)
 		goto fail;
-	if (sting_monitor_pid != -1 && t->pid != sting_monitor_pid)
+	if (sting_monitor_pid != -1 && !ancestor_pid(t, (pid_t) sting_monitor_pid))
 		goto fail;
 	/* not dealing with init because it exits last and we cannot save
 	   marked exit immunity. */
@@ -459,6 +476,15 @@ void sting_syscall_begin(void)
 	 * or parent (utility programs)? */
 	int sting_parent = 0;
 
+#if 0
+	if (t->cred->fsuid == 0)
+		t->sting_res_type = ADV_NORMAL_RES;
+	else if (t->cred->fsuid == 1000)
+		t->sting_res_type = NORMAL_RES;
+	else if (t->cred->fsuid == 1001)
+		t->sting_res_type = ADV_RES;
+#endif
+
 	if (!check_valid_user_context(t))
 		goto end;
 
@@ -467,15 +493,14 @@ void sting_syscall_begin(void)
 	if (!fname)
 		goto end;
 
-	if (!is_attackable_syscall(t))
-		goto end;
-
+	#if 0
 	if (t->cred->fsuid == 0)
 		t->sting_res_type = ADV_RES;
 	else
 		t->sting_res_type = NORMAL_RES;
 
 	t->sting_res_type = NA_RES;
+	#endif
 
 	/* XXX: below flow logs every entrypoint, not just adversary-accessible
 	   ones. rearrange if performance is needed */
@@ -494,6 +519,7 @@ void sting_syscall_begin(void)
 
 	/* get adversary, scanning each binding */
 	shadow_res_init(AT_FDCWD, fname, 0, &nd);
+	t->sting_res_type = ADV_NORMAL_RES;
 
 	while (nd.last_type == LAST_BIND || !lc) {
 		lc = shadow_res_advance_name(&fname, &ctr, &nd);
@@ -517,12 +543,15 @@ void sting_syscall_begin(void)
 
 		/* we check adversary permission only on last component */
 		if (lc && (nd.last_type == LAST_NORM || nd.last_type == LAST_BIND)) {
-			if (IS_ROOT(nd.path.dentry))
+			/* skip the case when last component is a mountpoint */
+			if (sh_err != -ENOENT && IS_ROOT(nd.path.dentry))
 				continue;
 
 			shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
 
+			t->sting_res_type = NORMAL_RES;
 			adv_uid_ind = sting_get_adversary(parent.dentry, child.dentry, ATTACKER_BIND);
+			t->sting_res_type = ADV_NORMAL_RES;
 
 			shadow_res_put_pc_paths(&parent, &child, sh_err);
 
@@ -544,6 +573,21 @@ void sting_syscall_begin(void)
 	shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
 
 	shadow_res_end(&nd);
+
+	/* determine unionfs branch visibility */
+	/* we should ideally fold this into the lookup itself */
+	if (sting_valid_adversary(adv_uid_ind)) {
+		/* possible adversarial interference - show adversarial
+		 * resource if one exists along path. */
+		t->sting_res_type = ADV_NORMAL_RES;
+	} else {
+		/* no adversarial interference - do not show adversarial
+		 * resource (and none should exist) */
+		t->sting_res_type = NORMAL_RES;
+	}
+
+	if (!is_attackable_syscall(t))
+		goto parent_put;
 
 	/* get ept dictionary record, initializing a new one if needed */
 
@@ -651,6 +695,7 @@ void sting_syscall_begin(void)
 		goto parent_put;
 
 	st.pid = t->pid;
+	get_task_comm(st.comm, t);
 	st.ino = ept_inode_get(&t->user_stack);
 	st.offset = ept_offset_get(&t->user_stack);
 	st.path = marked;

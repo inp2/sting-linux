@@ -17,6 +17,7 @@
  */
 
 #include "union.h"
+#include <linux/sting.h>
 
 /*
  * This is a helper function for rename, used when rename ends up with hosed
@@ -87,8 +88,8 @@ static int __unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 				       bindex);
 		if (IS_ERR(lower_new_dentry)) {
 			err = PTR_ERR(lower_new_dentry);
-			if (IS_COPYUP_ERR(err))
-				goto out;
+//			if (IS_COPYUP_ERR(err))
+//				goto out;
 			printk(KERN_ERR "unionfs: error creating directory "
 			       "tree for rename, bindex=%d err=%d\n",
 			       bindex, err);
@@ -96,12 +97,14 @@ static int __unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		}
 	}
 
+#if 0
 	/* check for and remove whiteout, if any */
 	err = check_unlink_whiteout(new_dentry, lower_new_dentry, bindex);
 	if (err > 0) /* ignore if whiteout found and successfully removed */
 		err = 0;
 	if (err)
 		goto out;
+#endif
 
 	/* check of old_dentry branch is writable */
 	err = is_robranch_super(old_dentry->d_sb, bindex);
@@ -171,23 +174,41 @@ static int do_unionfs_rename(struct inode *old_dir,
 	int local_err = 0;
 	int eio = 0;
 	int revert = 0;
+	int renamed = 0; /* was at least one object renamed? */
 
-	old_bstart = dbstart(old_dentry);
-	old_bend = dbend(old_dentry);
+	/* sting: if a victim deletes topmost branch,
+	 * delete all other branches also */
+	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+		old_bstart = dbstart(old_dentry);
+		old_bend = dbend(old_dentry);
 
-	new_bstart = dbstart(new_dentry);
-	new_bend = dbend(new_dentry);
-
-	/* Rename source to destination. */
-	err = __unionfs_rename(old_dir, old_dentry, old_parent,
-			       new_dir, new_dentry, new_parent,
-			       old_bstart);
-	if (err) {
-		if (!IS_COPYUP_ERR(err))
-			goto out;
-		do_copyup = old_bstart - 1;
+		new_bstart = dbstart(new_dentry);
+		new_bend = dbend(new_dentry);
 	} else {
-		revert = 1;
+		old_bstart = old_bend = dbstart(old_dentry);
+		new_bstart = new_bend = dbstart(new_dentry);
+	}
+
+	for (bindex = old_bstart; bindex <= old_bend; bindex++) {
+		/* Rename source to destination in each branch. */
+		err = __unionfs_rename(old_dir, old_dentry, old_parent,
+					   new_dir, new_dentry, new_parent,
+					   bindex);
+		if (err) {
+			if (revert == 1) {
+				/* sting: we renamed upper file but lower
+				   caused errors.
+				   it is as if
+				   a benign process created lower entry
+				   after we renamed the upper file. */
+				err = 0;
+	//		if (!IS_COPYUP_ERR(err))
+	//		do_copyup = old_bstart - 1;
+			}
+			goto out;
+		} else {
+			revert = 1;
+		}
 	}
 
 	/*
@@ -222,13 +243,14 @@ static int do_unionfs_rename(struct inode *old_dir,
 				unionfs_set_lower_dentry_idx(new_dentry,
 							     bindex, NULL);
 			}
-		} else if (IS_COPYUP_ERR(err)) {
-			do_copyup = bindex - 1;
+		// } else if (IS_COPYUP_ERR(err)) {
+		//	do_copyup = bindex - 1;
 		} else if (revert) {
 			goto revert;
 		}
 	}
 
+#if 0
 	if (do_copyup != -1) {
 		for (bindex = do_copyup; bindex >= 0; bindex--) {
 			/*
@@ -284,7 +306,7 @@ static int do_unionfs_rename(struct inode *old_dir,
 			err = -EIO;
 		}
 	}
-
+#endif
 out:
 	return err;
 
@@ -367,8 +389,8 @@ static int may_rename_dir(struct dentry *dentry, struct dentry *parent)
 	}
 
 	bstart = dbstart(dentry);
-	if (dbend(dentry) == bstart || dbopaque(dentry) == bstart)
-		return 0;
+	// if (dbend(dentry) == bstart || dbopaque(dentry) == bstart)
+//		return 0;
 
 	dbstart(dentry) = bstart + 1;
 	err = check_empty(dentry, parent, NULL);
@@ -386,7 +408,7 @@ int unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		   struct inode *new_dir, struct dentry *new_dentry)
 {
 	int err = 0;
-	struct dentry *wh_dentry;
+	// struct dentry *wh_dentry;
 	struct dentry *old_parent, *new_parent;
 	int valid = true;
 
@@ -428,6 +450,7 @@ int unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (err)
 		goto out;
 
+#if 0
 	/*
 	 * if new_dentry is already lower because of whiteout,
 	 * simply override it even if the whited-out dir is not empty.
@@ -461,7 +484,7 @@ int unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 				goto out;
 		}
 	}
-
+#endif
 	err = do_unionfs_rename(old_dir, old_dentry, old_parent,
 				new_dir, new_dentry, new_parent);
 	if (err)

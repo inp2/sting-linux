@@ -19,171 +19,173 @@
 #include <linux/posix_acl.h>
 #include <asm/uaccess.h>
 
-/* given a pointer to the end of the component, get its 
+#include <linux/sting.h>
+
+/* given a pointer to the end of the component, get its
    beginning */
 static inline int get_curr_start(char *s, int curr)
 {
-	/* if current component is the last one, curr points to 
-	   the NULL after its last character, else curr points to 
+	/* if current component is the last one, curr points to
+	   the NULL after its last character, else curr points to
 	   one char after that component */
-	int prev = curr - 1; 
+	int prev = curr - 1;
 	while (s[prev] == '/' && prev > 0)
-		prev--; 
+		prev--;
 	while (s[prev] != '/' && prev > 0)
-		prev--; 
+		prev--;
 	if (s[prev] == '/')
-		prev++; 
+		prev++;
 	/* point to first character of current component */
-	return prev; 
+	return prev;
 }
 
-/* modify component of path given symlink target. 
+/* modify component of path given symlink target.
    return new position to resolve from */
 int modify_lnk_name(char **orig, int pos, char *lnk)
 {
-	char *tmp; 
-	int prev = 0; 
+	char *tmp;
+	int prev = 0;
 	/* for relative paths, does there exist path components
 	   before the current symbolic link? */
-	int is_prefix = 0; 
-	/* for both relative and absolute paths, does there exist 
+	int is_prefix = 0;
+	/* for both relative and absolute paths, does there exist
 	   path components after the current symbolic link? */
-	int	is_suffix = 0; 
+	int	is_suffix = 0;
 
-	prev = get_curr_start(*orig, pos); 
+	prev = get_curr_start(*orig, pos);
 
-	is_prefix = (prev > 0); 
-	is_suffix = (*orig)[pos]; 
+	is_prefix = (prev > 0);
+	is_suffix = (*orig)[pos];
 
 	if (lnk[0] == '/') {
 		/* absolute */
 		if (is_suffix)
-			tmp = kasprintf(GFP_KERNEL, "%s/%s", lnk, &(*orig)[pos]); 
+			tmp = kasprintf(GFP_KERNEL, "%s/%s", lnk, &(*orig)[pos]);
 		else
-			tmp = kasprintf(GFP_KERNEL, "%s", lnk); 
-		strcpy(*orig, tmp); 
-		kfree(tmp); 
-		return 0; 
+			tmp = kasprintf(GFP_KERNEL, "%s", lnk);
+		strcpy(*orig, tmp);
+		kfree(tmp);
+		return 0;
 	} else {
 		/* relative */
 		if (!is_prefix && !is_suffix)
-			tmp = kasprintf(GFP_KERNEL, "%s", lnk); 
+			tmp = kasprintf(GFP_KERNEL, "%s", lnk);
 		else if (!is_prefix && is_suffix)
-			tmp = kasprintf(GFP_KERNEL, "%s/%s", lnk, &((*orig)[pos])); 
-		else if (is_prefix && !is_suffix) { 
-			(*orig)[prev - 1] = 0; 
-			tmp = kasprintf(GFP_KERNEL, "%s/%s", (*orig), lnk); 
+			tmp = kasprintf(GFP_KERNEL, "%s/%s", lnk, &((*orig)[pos]));
+		else if (is_prefix && !is_suffix) {
+			(*orig)[prev - 1] = 0;
+			tmp = kasprintf(GFP_KERNEL, "%s/%s", (*orig), lnk);
 		} else if (is_prefix && is_suffix) {
-			(*orig)[prev - 1] = 0; 
-			tmp = kasprintf(GFP_KERNEL, "%s/%s/%s", (*orig), lnk, &(*orig)[pos]); 
-		} else 
-			BUG_ON(1); 
-		strncpy(*orig, tmp, PATH_MAX); 
-		kfree(tmp); 
-		return prev; 
+			(*orig)[prev - 1] = 0;
+			tmp = kasprintf(GFP_KERNEL, "%s/%s/%s", (*orig), lnk, &(*orig)[pos]);
+		} else
+			BUG_ON(1);
+		strncpy(*orig, tmp, PATH_MAX);
+		kfree(tmp);
+		return prev;
 	}
 }
 
 int get_d_path(struct path *path, char **n)
 {
-	char *p, *pathname; 
-	int pos; 
+	char *p, *pathname;
+	int pos;
 	/* We will allow 11 spaces for ' (deleted)' to be appended */
-	pathname = kmalloc(PATH_MAX + 11, GFP_KERNEL); 
-	if (!pathname) 
-		return -ENOMEM; 
+	pathname = kmalloc(PATH_MAX + 11, GFP_KERNEL);
+	if (!pathname)
+		return -ENOMEM;
 
-	p = d_path(path, pathname, PATH_MAX + 11); 
+	p = d_path(path, pathname, PATH_MAX + 11);
 	if (IS_ERR(p)) {
-		kfree(pathname); 
-		return PTR_ERR(p); 
+		kfree(pathname);
+		return PTR_ERR(p);
 	}
 
-	strcpy(*n, p); 
-	pos = strlen(p) - 1; 
+	strcpy(*n, p);
+	pos = strlen(p) - 1;
 	while (p[pos] != '/')
-		pos--; 
+		pos--;
 	kfree(pathname);
 
-	return pos; 
+	return pos;
 }
 
 
-/* an iterative version of path lookup based on path_lookupat(), 
- * treating all bindings equally, whether they be final or path. 
+/* an iterative version of path lookup based on path_lookupat(),
+ * treating all bindings equally, whether they be final or path.
  *
- * this is so we can perform actions such as adversary permission 
- * check on each component. 
+ * this is so we can perform actions such as adversary permission
+ * check on each component.
  *
- * LOOKUP_RCU flag is ignored -- only traditional ref-walk 
- * is supported. 
+ * LOOKUP_RCU flag is ignored -- only traditional ref-walk
+ * is supported.
  *
- * depth is irrelevant because we make it iterative. 
- */ 
+ * depth is irrelevant because we make it iterative.
+ */
 
-int shadow_res_advance_name(char **n, int *nptr, 
+int shadow_res_advance_name(char **n, int *nptr,
 		struct nameidata *nd)
 {
 	long len = 0;
-	int last_component = 0; 
-	char *name; 
-	/* we want to maintain exact name being analyzed, 
-	 * nd->saved_names will lose it when we need to print it 
+	int last_component = 0;
+	char *name;
+	/* we want to maintain exact name being analyzed,
+	 * nd->saved_names will lose it when we need to print it
 	 * (it is lost as soon as resolution is done). */
 	if (nd->last_type == LAST_BIND) {
-		void *res; 
+		void *res;
 
 		// if (link->mnt == nd->path.mnt)
 		//	mntget(link->mnt);
 
 		nd_set_link(nd, NULL);
-		BUG_ON(!nd->inode->i_op->follow_link); 
+		BUG_ON(!nd->inode->i_op->follow_link);
 
-		/* follow_link, if directly resolving, drops reference to parent if -ENOENT, but 
-		 * it changes nd.path to (negative dentry) child. change it back to 
+		/* follow_link, if directly resolving, drops reference to parent if -ENOENT, but
+		 * it changes nd.path to (negative dentry) child. change it back to
 		 * the previous (parent) */
-		res = nd->inode->i_op->follow_link(nd->path.dentry, nd); 
+		res = nd->inode->i_op->follow_link(nd->path.dentry, nd);
 
 		if (IS_ERR(res))
-			return PTR_ERR(res); 
+			return PTR_ERR(res);
 
-		if (nd_get_link(nd)) 
-			*nptr = modify_lnk_name(n, *nptr, nd_get_link(nd)); 
+		if (nd_get_link(nd))
+			*nptr = modify_lnk_name(n, *nptr, nd_get_link(nd));
 		else {
 			/* resolution already done in follow_link */
-			int ret; 
+			int ret;
 
-			nd->flags |= LOOKUP_JUMPED; 
-			nd->inode = nd->path.dentry->d_inode; 
-			ret = get_d_path(&nd->path, n); 
-			if (ret < 0) 
-				return ret; 
+			nd->flags |= LOOKUP_JUMPED;
+			nd->inode = nd->path.dentry->d_inode;
+			ret = get_d_path(&nd->path, n);
+			if (ret < 0)
+				return ret;
 			if (nd->inode->i_op->follow_link) {
 				/* stepped on a _really_ weird one */
 				path_put(&nd->path);
-				return -ELOOP; 
+				return -ELOOP;
 			}
-			/* we have to set other fields that would 
+			/* we have to set other fields that would
 			   normally be done by shadow_res_resolve_name */
-			*nptr = ret; 
-			nd->last_type = LAST_NORM; 
-			nd->flags &= ~LOOKUP_JUMPED; 
-			return 2; 
+			*nptr = ret;
+			nd->last_type = LAST_NORM;
+			nd->flags &= ~LOOKUP_JUMPED;
+			return 2;
 		}
 
 		if (nd->inode->i_op->put_link)
-			nd->inode->i_op->put_link(nd->path.dentry, nd, res); 
-		goto out; 
+			nd->inode->i_op->put_link(nd->path.dentry, nd, res);
+		goto out;
 	}
 
-	name = (*n) + (*nptr); 
+	name = (*n) + (*nptr);
 	while (*name=='/') {
 		name++;
-		(*nptr)++; 
+		(*nptr)++;
 	}
-	
-	if (!*name) 
-		last_component = 1; 
+
+	if (!*name)
+		last_component = 1;
 
 	len = hash_name(name, &nd->last.hash);
 	nd->last.name = name;
@@ -201,8 +203,8 @@ int shadow_res_advance_name(char **n, int *nptr,
 	}
 
 	if (!name[len]) {
-		last_component = 1; 
-		goto out; 
+		last_component = 1;
+		goto out;
 	}
 	/*
 	 * If it wasn't NUL, we know it was '/'. Skip that
@@ -212,14 +214,14 @@ int shadow_res_advance_name(char **n, int *nptr,
 		len++;
 	} while (unlikely(name[len] == '/'));
 	if (!name[len])
-		last_component = 1; 
+		last_component = 1;
 
 out:
-	*nptr += len; 
+	*nptr += len;
 
-	return last_component; 
+	return last_component;
 }
-EXPORT_SYMBOL(shadow_res_advance_name); 
+EXPORT_SYMBOL(shadow_res_advance_name);
 
 static inline int can_lookup(struct inode *inode)
 {
@@ -241,13 +243,13 @@ static __always_inline void set_root(struct nameidata *nd)
 		get_fs_root(current->fs, &nd->root);
 }
 
-/* 
-   from Documentation/filesystems/path-lookup.txt: 
+/*
+   from Documentation/filesystems/path-lookup.txt:
    Making the child a parent for the next lookup requires more checks and
    procedures. Symlinks essentially substitute the symlink name for the target
    name in the name string, and require some recursive path walking.  Mount
    points must be followed into, switching from the mount point path to the root of
-   the particular mounted vfsmount. 
+   the particular mounted vfsmount.
  */
 
 /* resolve name in nd->last_type to a path in nd->path */
@@ -261,7 +263,7 @@ int shadow_res_resolve_name(struct nameidata *nd, char *name)
 		return -ELOOP;
 	}
 
-	/* if the previous component was a symlink, re-initialize nd. 
+	/* if the previous component was a symlink, re-initialize nd.
 	 * slightly different from path_init because there is no dfd. */
 	if (nd->last_type == LAST_BIND) {
 		if (name[0] == '/') {
@@ -273,70 +275,70 @@ int shadow_res_resolve_name(struct nameidata *nd, char *name)
 			nd->flags |= LOOKUP_JUMPED;
 		} else {
 			/* relative, restore the parent to continue walk */
-			nd->path.dentry = nd->path.dentry->d_parent; 
+			nd->path.dentry = nd->path.dentry->d_parent;
 		}
-		nd->last_type = LAST_NORM; 
-		current->total_link_count++; 
-		goto out; 
+		nd->last_type = LAST_NORM;
+		current->total_link_count++;
+		goto out;
 	}
 
 	/* continue with resolution */
 	if (!can_lookup(nd->inode))
-		return -ENOTDIR; 
+		return -ENOTDIR;
 
 	err = may_lookup(nd);
 	if (err)
-		return err; 
+		return err;
 
-	if (nd->last_type == LAST_DOTDOT) 
-		nd->flags |= LOOKUP_JUMPED; 
+	if (nd->last_type == LAST_DOTDOT)
+		nd->flags |= LOOKUP_JUMPED;
 
 	if (likely(nd->last_type == LAST_NORM)) {
 		struct dentry *parent = nd->path.dentry;
 		nd->flags &= ~LOOKUP_JUMPED;
 		if (unlikely(parent->d_flags & DCACHE_OP_HASH)) {
 			err = parent->d_op->d_hash(parent, nd->inode,
-						   &nd->last); 
+						   &nd->last);
 			if (err < 0)
-				return err; 
+				return err;
 		}
 	}
 
-	path_get(&prev); 
+	path_get(&prev);
 	err = walk_component(nd, &next, &nd->last, nd->last_type, LOOKUP_FOLLOW);
-	/* walk_component drops reference to parent if -ENOENT, but 
-	 * it changes nd.path to (negative dentry) child. change it back to 
+	/* walk_component drops reference to parent if -ENOENT, but
+	 * it changes nd.path to (negative dentry) child. change it back to
 	 * the previous (parent) */
-	if (err == -ENOENT) 
-		nd->path = prev; 
+	if (err == -ENOENT)
+		nd->path = prev;
 	else
-		path_put(&prev); 
+		path_put(&prev);
 
 	if (err < 0) {
-		goto out; 
+		goto out;
 	}
 	if (err) {
 		/* walk_component does not set nd->path to next if next is a symlink,
-		 * as it will lose the parent, which we may need for further resolution. 
-		 * we manually restore the parent (see above). 
-		 * this means if someone makes our parent dentry negative (e.g, rm -r), 
-		 * we have a negative dentry parent on which we can't check permission. 
-		 * correspondingly, adversary permission module has been modified to 
+		 * as it will lose the parent, which we may need for further resolution.
+		 * we manually restore the parent (see above).
+		 * this means if someone makes our parent dentry negative (e.g, rm -r),
+		 * we have a negative dentry parent on which we can't check permission.
+		 * correspondingly, adversary permission module has been modified to
 		 * simply ignore this case. */
-		nd->last_type = LAST_BIND; 
-		nd->path.mnt = next.mnt; 
-		nd->path.dentry = next.dentry; 
+		nd->last_type = LAST_BIND;
+		nd->path.mnt = next.mnt;
+		nd->path.dentry = next.dentry;
 	}
 
 out:
 	/* consistency */
-	nd->inode = nd->path.dentry->d_inode; 
+	nd->inode = nd->path.dentry->d_inode;
 	return err;
 }
-EXPORT_SYMBOL(shadow_res_resolve_name); 
+EXPORT_SYMBOL(shadow_res_resolve_name);
 
 
-int shadow_res_init(int dfd, const char *name, 
+int shadow_res_init(int dfd, const char *name,
 		unsigned int flags, struct nameidata *nd)
 {
 	int retval = 0;
@@ -383,6 +385,7 @@ int shadow_res_init(int dfd, const char *name,
 	}
 
 	nd->inode = nd->path.dentry->d_inode;
+	current->sting_res_type = ADV_NORMAL_RES;
 	return 0;
 
 fput_fail:
@@ -393,10 +396,10 @@ out_fail:
 
 int shadow_res_end(struct nameidata *nd)
 {
-	int err; 
+	int err;
 	err = complete_walk(nd);
 
-	/* 
+	/*
 	if (!err && nd->flags & LOOKUP_DIRECTORY) {
 		if (!nd->inode->i_op->lookup) {
 			path_put(&nd->path);
@@ -410,46 +413,46 @@ int shadow_res_end(struct nameidata *nd)
 	} */
 	return err;
 }
-EXPORT_SYMBOL(shadow_res_end); 
+EXPORT_SYMBOL(shadow_res_end);
 
-void shadow_res_get_pc_paths(struct path *parent, struct path *child, 
+void shadow_res_get_pc_paths(struct path *parent, struct path *child,
 		struct nameidata *nd, int err)
 {
 	if (err != -ENOENT) {
-		*child = nd->path; 
-		*parent = *child; 
-		// parent->dentry = child->dentry->d_parent; 
+		*child = nd->path;
+		*parent = *child;
+		// parent->dentry = child->dentry->d_parent;
 		// if (child->dentry != parent->dentry)
-			// path_get(parent); 
-		path_get_parent(child, parent); 
+			// path_get(parent);
+		path_get_parent(child, parent);
 	} else {
-		*parent = nd->path; 
-		child->dentry = NULL; 
-		child->mnt = NULL; 
+		*parent = nd->path;
+		child->dentry = NULL;
+		child->mnt = NULL;
 	}
 }
-EXPORT_SYMBOL(shadow_res_get_pc_paths); 
+EXPORT_SYMBOL(shadow_res_get_pc_paths);
 
 void shadow_res_put_pc_paths(struct path *parent, struct path *child, int err)
 {
 	if (err != -ENOENT && child->dentry != parent->dentry)
-		path_put(parent); 
+		path_put(parent);
 }
-EXPORT_SYMBOL(shadow_res_put_pc_paths); 
+EXPORT_SYMBOL(shadow_res_put_pc_paths);
 
 void shadow_res_put_lookup_path(struct nameidata *nd)
 {
-	path_put(&nd->path); 
+	path_put(&nd->path);
 }
-EXPORT_SYMBOL(shadow_res_put_lookup_path); 
+EXPORT_SYMBOL(shadow_res_put_lookup_path);
 
 char *shadow_res_get_last_name(struct nameidata *nd, struct path *child)
 {
 	/* if child exists, child dentry holds right name from the parent */
 	if (child->dentry)
-		return child->dentry->d_name.name; 
+		return child->dentry->d_name.name;
 
 	/* otherwise, nd->last.name holds name where -ENOENT occurred */
-	return nd->last.name; 
+	return nd->last.name;
 }
-EXPORT_SYMBOL(shadow_res_get_last_name); 
+EXPORT_SYMBOL(shadow_res_get_last_name);

@@ -73,6 +73,52 @@ static inline void purge_inode_data(struct inode *inode)
 	 */
 }
 
+static inline int within(int vs, int ve, int is, int ie)
+{
+	return ((is < vs) && (ie > ve));
+}
+
+/* for each path component looked up, should we shrink/expand
+ * the dentry we return to VFS? We cannot simply return
+ * false from d_revalidate and expect VFS to re-lookup (it simply
+ * returns -ESTALE for many system calls), so re-lookup ourselves */
+static inline int dentry_lookup_change(struct dentry *dentry)
+{
+	int tbstart, tbend, bstart, bend, sbstart, sbend;
+	/* never re-validate the root dentry */
+	if (IS_ROOT(dentry))
+		return false;
+
+	tbstart = tdbstart(dentry);
+	tbend = tdbend(dentry);
+	bstart = dbstart(dentry);
+	bend = dbend(dentry);
+	sbstart = sdbstart();
+	sbend = sdbend();
+
+	if ((tbstart == sbstart) && (tbend == sbend))
+		return false; /* valid */
+
+	if (within(sbstart, sbend, tbstart, tbend)) {
+		/* we might need to contract */
+		/* hopefully, this should not happen too often */
+		if (!within(bstart, bend, sbstart, sbend))
+			return true; /* contract */
+		else
+			return false; /* valid */
+	}
+
+	if (within(tbstart, tbend, sbstart, sbend)) {
+		/* we need to expand */
+		/* this happens only if previously contracted hopefully, this should not happen too often */
+		return true;
+	}
+
+	/* disjoint branch intervals */
+	return true;
+}
+
+
 /*
  * Revalidate a single file/symlink/special dentry.  Assume that info nodes
  * of the @dentry and its @parent are locked.  Assume parent is valid,
@@ -101,6 +147,10 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 
 	if (is_newer_lower(dentry)) {
 		/* root dentry is always valid */
+		/* sting: as root dentry never gets shrunk/expanded, an open()
+		 * followed by getdents() on the root might return resources
+		 * from higher branches when lower ones should be shown.  However,
+		 * operations on the resources themselves will be correct */
 		if (IS_ROOT(dentry)) {
 			unionfs_copy_attr_times(dentry->d_inode);
 		} else {
@@ -122,8 +172,7 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 		positive = 1;
 
 	/* if our dentry is valid, then validate all lower ones */
-	if ((sbgen == dgen)) // && !(&UNIONFS_D(dentry)->has_adversary)) // && !(dentry->d_inode && sting_already_launched(dentry) 
-		// && !sting_adversary(dentry->d_inode->i_uid, current->fsuid)))
+	if ((sbgen == dgen) && !dentry_lookup_change(dentry))
 		goto validate_lowers;
 
 	/* The root entry should always be valid */
