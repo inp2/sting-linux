@@ -253,14 +253,18 @@ fs_initcall(utility_progs_init);
 /* we have a simple list instead of a hash as the number of
  * current stings is small */
 
+struct kmem_cache *sting_cachep;
+
 static struct sting sting_list;
 static struct rw_semaphore stings_rwlock;
 
 void sting_list_add(struct sting *st)
 {
-	struct sting *news = kmalloc(sizeof(struct sting), GFP_KERNEL);
-	if (!news)
+	struct sting *news = kmem_cache_alloc(sting_cachep, GFP_KERNEL);
+	if (!news) {
+		STING_ERR(0, "failed to create sting");
 		return;
+	}
 
 	st->path_ino = st->path.dentry->d_inode->i_ino; /* for ease of comparison */
 
@@ -291,6 +295,7 @@ void sting_list_del(struct sting *st)
 	down_write(&stings_rwlock);
 	list_del(&st->list);
 	up_write(&stings_rwlock);
+	kmem_cache_free(sting_cachep, st);
 }
 
 struct sting *sting_list_get(struct sting *st, int st_flags)
@@ -338,6 +343,30 @@ void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 	st->int_lineno = int_ept_lineno_get(&t->user_stack);
 }
 
+static void sting_ctor(void *data)
+{
+	/* zero everything */
+	struct sting *st = data;
+
+	memset(st, 0, sizeof(struct sting));
+	st->attack_type = -1;
+	st->adv_uid_ind = -1;
+#if 0
+	st->pid = 0;
+	st->comm[0] = '\0';
+	st->ino = 0;
+	st->offset = 0;
+	st->int_filename[0] = '\0';
+	st->int_lineno = 0;
+	st->path.dentry = NULL;
+	st->path.mnt = NULL;
+	st->path_ino = 0;
+	st->target_path.dentry = NULL;
+	st->target_path.ino = NULL;
+	st->target_path_ino = 0;
+#endif
+}
+
 static int __init sting_init(void)
 {
 	struct dentry *sting_monitor_pid;
@@ -353,6 +382,12 @@ static int __init sting_init(void)
 	/* initialize linked list of ongoing stings */
 	INIT_LIST_HEAD(&sting_list.list);
 	init_rwsem(&stings_rwlock);
+
+	/* initialize cache for ongoing stings */
+	sting_cachep = kmem_cache_create("sting_cachep",
+			sizeof(struct sting), 0,
+			SLAB_HWCACHE_ALIGN|SLAB_PANIC|SLAB_NOTRACK, sting_ctor);
+
 	return 0;
 }
 fs_initcall(sting_init);
