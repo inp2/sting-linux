@@ -19,6 +19,7 @@
 #include "union.h"
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/magic.h>
 
 static void unionfs_fill_inode(struct dentry *dentry,
 			       struct inode *inode)
@@ -595,6 +596,7 @@ static int unionfs_read_super(struct super_block *sb, void *raw_data,
 	sb->s_time_gran = 1;
 
 	sb->s_op = &unionfs_sops;
+	sb->s_magic = UNIONFS_SUPER_MAGIC;
 
 	/* get a new inode and allocate our root dentry */
 	inode = unionfs_iget(sb, iunique(sb, UNIONFS_ROOT_INO));

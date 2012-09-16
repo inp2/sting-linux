@@ -149,7 +149,8 @@ static int unionfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	mntput(lower_path.mnt);
 
 	/* set return buf to our f/s to avoid confusing user-level utils */
-	buf->f_type = UNIONFS_SUPER_MAGIC;
+	buf->f_type = sb->s_magic;
+
 	/*
 	 * Our maximum file name can is shorter by a few bytes because every
 	 * file name could potentially be whited-out.
