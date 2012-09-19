@@ -89,6 +89,11 @@ static inline int dentry_lookup_change(struct dentry *dentry)
 	if (IS_ROOT(dentry))
 		return false;
 
+	/* always re-validate directories so they get correct nlink --
+	   see TODO in unionfs/inode.c */
+	if (S_ISDIR(dentry->d_inode->i_mode))
+		return true;
+
 	tbstart = tdbstart(dentry);
 	tbend = tdbend(dentry);
 	bstart = dbstart(dentry);
@@ -364,6 +369,39 @@ bool is_newer_lower(const struct dentry *dentry)
 	return false;		/* default: lower is not newer */
 }
 
+int unionfs_d_revalidate_recursive(struct dentry *dentry,
+				struct dentry *parent)
+{
+	bool valid = true;
+	int err = 1;		/* 1 means valid for the VFS */
+	struct dentry *gparent;
+
+	/* both us and our parent are locked (as also the superblock) */
+	if (IS_ROOT(parent))
+		goto validate_ourselves;
+
+	if ((tdbstart(parent) > sdbstart()) ||
+			tdbend(parent) < sdbend()) {
+		/* parent needs to be revalidated, lock grandparent */
+		gparent = unionfs_lock_parent(parent, UNIONFS_DMUTEX_PARENT);
+		valid = unionfs_d_revalidate_recursive(parent, gparent);
+		unionfs_unlock_parent(parent, gparent);
+	}
+
+validate_ourselves:
+	if (valid)
+		valid = __unionfs_d_revalidate(dentry, parent, false);
+	if (valid) {
+		unionfs_postcopyup_setmnt(dentry);
+		unionfs_check_dentry(dentry);
+	} else {
+		d_drop(dentry);
+		err = valid;
+	}
+
+	return err;
+}
+
 static int unionfs_d_revalidate(struct dentry *dentry,
 				struct nameidata *nd)
 {
@@ -378,7 +416,19 @@ static int unionfs_d_revalidate(struct dentry *dentry,
 	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
 	unionfs_lock_dentry(dentry, UNIONFS_DMUTEX_CHILD);
 
-	valid = __unionfs_d_revalidate(dentry, parent, false);
+	/* if our parent does not have required branches, we have to revalidate the
+	 * parent and its parent and so on, until we get to a point that has what
+	 * we need. we got into this position because we changed the branch
+	 * visible, and the branch we need is not available in the parent directory,
+	 * because it itself was resolved in the different context, and so on.  */
+
+	if ((tdbstart(parent) > sdbstart()) ||
+			tdbend(parent) < sdbend()) {
+		valid = unionfs_d_revalidate_recursive(dentry, parent);
+	}
+
+	if (valid)
+		valid = __unionfs_d_revalidate(dentry, parent, false);
 	if (valid) {
 		unionfs_postcopyup_setmnt(dentry);
 		unionfs_check_dentry(dentry);

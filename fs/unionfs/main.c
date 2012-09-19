@@ -57,6 +57,11 @@ static void unionfs_fill_inode(struct dentry *dentry,
 		inode->i_op = &unionfs_symlink_iops;
 	else if (S_ISDIR(lower_inode->i_mode))
 		inode->i_op = &unionfs_dir_iops;
+	else {
+		/* since we dynamically change characteristics, we might
+		 * need to revert to regular ops */
+		inode->i_op = &unionfs_main_iops;
+	}
 
 	/* Use different set of file ops for directories */
 	if (S_ISDIR(lower_inode->i_mode))
@@ -630,8 +635,8 @@ static int unionfs_read_super(struct super_block *sb, void *raw_data,
 		unionfs_set_lower_dentry_idx(sb->s_root, bindex, d);
 		unionfs_set_lower_mnt_idx(sb->s_root, bindex, m);
 	}
-	dbstart(sb->s_root) = bstart;
-	dbend(sb->s_root) = bend;
+	tdbstart(sb->s_root) = dbstart(sb->s_root) = bstart;
+	tdbend(sb->s_root) = dbend(sb->s_root) = bend;
 
 	/* Set the generation number to one, since this is for the mount. */
 	atomic_set(&UNIONFS_D(sb->s_root)->generation, 1);

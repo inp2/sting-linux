@@ -16,24 +16,24 @@
 #define ATTACKER_XATTR_STRING ATTACKER_XATTR_PREFIX ATTACKER_XATTR_SUFFIX
 #define ATTACKER_XATTR_VALUE "1"
 
-int sting_launch_attack(char *fname, struct path *parent, 
-		int a_ind, int attack_type, struct path *marked); 
-// int check_already_attacked(char __user *filename, int follow); 
+int sting_launch_attack(char *fname, struct path *parent,
+		int a_ind, int attack_type, struct sting *st);
+// int check_already_attacked(char __user *filename, int follow);
 
 static inline int sting_attack_checked(int attack_history, int attack_type)
 {
-	return (attack_history & (attack_type << 8)); 
+	return (attack_history & (attack_type << 8));
 }
 
 static inline int sting_get_next_attack(int attack_history)
 {
 	if (!sting_attack_checked(attack_history, SYMLINK))
-		return SYMLINK; 
-	return -1; 
+		return SYMLINK;
+	return -1;
 	if (!sting_attack_checked(attack_history, HARDLINK))
-		return HARDLINK; 
+		return HARDLINK;
 	if (!sting_attack_checked(attack_history, SQUAT))
-		return SQUAT; 
+		return SQUAT;
 }
 
 #define DONT_FOLLOW 0

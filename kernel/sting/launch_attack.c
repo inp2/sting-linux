@@ -23,6 +23,11 @@
 #include <linux/namei.h>
 #include <linux/xattr.h>
 #include <linux/fs_struct.h>
+#include <linux/union_fs.h>
+#include <linux/mount.h>
+#include <linux/security.h>
+#include <linux/fsnotify_backend.h>
+#include <linux/audit.h>
 
 #include <asm/syscall.h>
 
@@ -77,17 +82,16 @@ char *get_last(char *filename)
  * @type: %TYPE_SYMLINK/HARDLINK
  */
 
-char *get_existing_target_file(uid_t uid, char *filename, char *fname, int type)
+char *get_existing_target_file(char *filename, char *fname, uid_t uid)// , int type)
 {
 	char uid_str[6];
-
 	sprintf(uid_str, "%d", uid);
 	strcpy(fname, ATTACK_DIR_PREFIX);
 	strcat(fname, uid_str);
 	strcat(fname, ATTACK_EXISTING_FILE_PREFIX);
 	strcat(fname, "_");
-	strcat(fname, (type == TYPE_SYMLINK) ? SYMLINK_FILE_INFIX : HARDLINK_FILE_INFIX);
-	strcat(fname, "_");
+	// strcat(fname, (type == TYPE_SYMLINK) ? SYMLINK_FILE_INFIX : HARDLINK_FILE_INFIX);
+	// strcat(fname, "_");
 	strcat(fname, get_last(filename));
 
 	return fname;
@@ -101,10 +105,9 @@ EXPORT_SYMBOL(get_existing_target_file);
  * @fname: allocated pointer
  */
 
-char *get_existing_target_dir(uid_t uid, char *filename, char *fname)
+char *get_existing_target_dir(char *filename, char *fname, uid_t uid)
 {
 	char uid_str[6];
-
 	sprintf(uid_str, "%d", uid);
 	strcpy(fname, ATTACK_DIR_PREFIX);
 	strcat(fname, uid_str);
@@ -124,10 +127,9 @@ EXPORT_SYMBOL(get_existing_target_dir);
  *
  */
 
-char *get_new_target_file(uid_t uid, char *filename, char *fname)
+char *get_new_target_file(char *filename, char *fname, uid_t uid)
 {
 	char uid_str[6];
-
 	sprintf(uid_str, "%d", uid);
 	strcpy(fname, ATTACK_DIR_PREFIX);
 	strcat(fname, uid_str);
@@ -334,6 +336,91 @@ int already_exists(char __user *filename, int follow, struct stat64 *buf)
 #define T_DIR 2
 #define T_SOCK 3
 
+/* special check for unionfs */
+int sting_obj_exists(struct dentry *d, int bindex)
+{
+	if (!is_unionfs(d))
+		return !!d->d_inode;
+	else
+		return !!unionfs_lower_dentry_idx_export(d, bindex);
+}
+
+static inline void fsnotify_create(struct inode *inode, struct dentry *dentry)
+{
+	audit_inode_child(dentry, inode);
+
+	fsnotify(inode, FS_CREATE, dentry->d_inode, FSNOTIFY_EVENT_INODE, dentry->d_name.name, 0);
+}
+
+/*
+ * special sting function to create in upper adversarial branch.
+ * it calls vfs_symlink even if dentry->d_inode exists, so long as
+ * the adversarial branch resource doesn't exist.
+ *
+ * this is symlinkat() from fs/namei.c without the initial name
+ * resolution, which is already resolved for us.
+ *
+ * s_parent and s_child are dentries of source's parent and child
+ * (these are resolved outside), and
+ * path references to s_parent are held in sting_syscall_begin and
+ * to s_child in the caller; so we do not need to worry about them.
+ *
+ * simply setting resolution type to ADV_RES on last component is
+ * not enough, because the parent may not yet be copied up, and
+ * we get a dentry whose start and end = -1 (because the parent's
+ * lower dentry does not exist on adversarial branch 0).
+ *
+ * if we instead opt for resolution type to ADV_NORMAL_RES, the
+ * dentry will become positive if the lower non-adversarial branch
+ * contains it, and -EEXIST will be returned instead of calling
+ * the vfs_symlink() function.
+ */
+
+int sting_symlink(char *target, struct path *s_parent,
+					struct dentry *s_child)
+{
+	int error = 0;
+	int r_int;
+
+	struct inode *dir = s_parent->dentry->d_inode;
+
+	/* for the security hooks we are calling, we do not
+	 * want to re-invoke sting detection */
+	r_int = sting_set_res_intent(current, LAUNCH_INT);
+
+	mutex_lock(&s_parent->dentry->d_inode->i_mutex);
+	error = mnt_want_write(s_parent->mnt);
+	if (error)
+		goto unlock;
+	error = security_path_symlink(s_parent, s_child, target);
+	if (error)
+		goto unlock;
+
+	/* copy of vfs_symlink, change may_create*/
+	error = may_create_noexist(dir);
+
+	if (error)
+		goto unlock;
+
+	if (!dir->i_op->symlink) {
+		error = -EPERM;
+		goto unlock;
+	}
+
+	error = security_inode_symlink(dir, s_child, target);
+	if (error)
+		goto unlock;
+
+	error = dir->i_op->symlink(dir, s_child, target);
+	if (!error)
+		fsnotify_create(dir, s_child);
+
+unlock:
+	mutex_unlock(&s_parent->dentry->d_inode->i_mutex);
+	sting_set_res_intent(current, r_int);
+	return error;
+}
+
 /**
  * file_create() - Create a file/dir at location referenced by filename
  * @filename: name of file to create
@@ -361,66 +448,91 @@ int already_exists(char __user *filename, int follow, struct stat64 *buf)
  * TODO: Extend to other types
  */
 
-int file_create(char __user *filename, int reason, int type, int sn, int att_uid_ind)
+int file_create(char __user *fname, struct path* parent,
+		int reason, int type, int sn, int att_uid_ind)
 {
 	const struct cred *old_cred;
 	int ret = 0;
 	mm_segment_t old_fs = get_fs();
 	int exists = 0;
-	struct stat64 buf;
+	struct dentry *child = NULL;
+	int c_res_type;
 
-	exists = already_exists(filename, DONT_FOLLOW, &buf);
+	c_res_type = sting_get_res_type(current);
 
 	/* If REASON_TOCTTOU_RUNTIME,  we still want to be able to delete afterwards, so
 	   create with attacker permission, not process permission */
 	/* With process permission may execute further paths */
+
 	if ((reason == REASON_TARGET) || (reason == REASON_NORMAL_RUNTIME)) {
 		/* Create the file with process permission */
 		/* This is only done in /attacker/uid/ */
+		sting_set_res_type(current, NORMAL_RES);
 		if (type == T_REG) {
-			STING_SYSCALL(ret = sys_open(filename, O_CREAT, 0755));
+			STING_SYSCALL(ret = sys_open(fname, O_CREAT, 0755));
 			if (ret > 0) {
 				STING_SYSCALL(sys_close(ret));
 			}
 		} else if (type == T_DIR) {
-			STING_SYSCALL(ret = sys_mkdir(filename, 0777));
+			STING_SYSCALL(ret = sys_mkdir(fname, 0777));
 		}
 		if ((ret < 0) && (ret != -EEXIST)) {
-			printk(KERN_INFO STING_MSG "Can't create file/dir %s: %d?\n", filename, ret);
+			printk(KERN_INFO STING_MSG "Can't create file/dir %s: %d?\n", fname, ret);
 		}
 		/* goto mark; */
 	} else if ((reason == REASON_SQUAT) || (reason == REASON_TOCTTOU_RUNTIME)) {
 		/* Change creds to attacker's */
 		old_cred = set_creds(uid_array[att_uid_ind]);
+		sting_set_res_type(current, ADV_RES);
+
+		mutex_lock(&parent->dentry->d_inode->i_mutex);
+		child = lookup_one_len(fname, parent->dentry, strlen(fname));
+		mutex_unlock(&parent->dentry->d_inode->i_mutex);
+		if (IS_ERR(child)) {
+			ret = PTR_ERR(child);
+			goto fail;
+		}
+
+		/* does it exist on the non-adversarial branch? */
+		exists = sting_obj_exists(child, STING_NON_ADV_BID);
 
 		if (exists) {
-			/* TODO: If REASON_SQUAT,
-			   preserve contents */
-			/* TODO: If TOCTTOU_RUNTIME,
-			   no need to delete, as file
-			   is already there */
+			if (!is_unionfs(child)) {
+				/* TODO: If REASON_SQUAT,
+				   preserve contents */
+				/* TODO: If TOCTTOU_RUNTIME,
+				   no need to delete, as file
+				   is already there */
 
-			/* Try deleting first */
-			STING_SYSCALL(ret = sys_unlink(filename));
-			if (ret < 0) {
-				if (ret == -ENOENT)
-					printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
-				else if (ret == -EACCES)
-					printk(KERN_INFO "attacker: att_uid_ind not working!\n");
-				goto restore;
+				/* Try deleting first */
+				STING_SYSCALL(ret = sys_unlink(fname));
+				if (ret < 0) {
+					if (ret == -ENOENT)
+						printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
+					else if (ret == -EACCES)
+						printk(KERN_INFO "attacker: att_uid_ind not working!\n");
+					goto restore;
+				} else {
+				STING_LOG("Delete SUCCESS for squat: %s, proc "
+							"euid: %d attacker uid: %d, process: %s system call:  %d\n",
+							fname, current->real_cred->fsuid,
+							uid_array[att_uid_ind][0], current->comm, sn);
+				}
 			} else {
-				STING_LOG("Delete SUCCESS for Tocttou runtime!: %s, proc "
-						"euid: %d attacker uid: %d, process: %s system call:  %d\n",
-						filename, current->real_cred->fsuid,
-						uid_array[att_uid_ind][0], current->comm, sn);
+				/* no actual deletion, but if done properly, the shadow resolution
+				 * already evaluated delete permission on the lower branch */
+				STING_LOG("Delete SUCCESS for squat: %s, proc "
+							"euid: %d attacker uid: %d, process: %s system call:  %d\n",
+							fname, current->real_cred->fsuid,
+							uid_array[att_uid_ind][0], current->comm, sn);
 			}
 		}
 
 		/* Create the file */
 		if (type == T_REG) {
-			STING_SYSCALL(ret = sys_open(filename, O_CREAT, 0777));
+			STING_SYSCALL(ret = sys_open(fname, O_CREAT, 0777));
 			if (ret == -ENOENT) ;
-//					printk(KERN_INFO STING_MSG "Directory creation required: %s\n", filename);
+//					printk(KERN_INFO STING_MSG "Directory creation required: %s\n", fname);
 			if (ret > 0)
 				sys_close(ret);
 		} else if (type == T_SOCK) {
@@ -430,16 +542,16 @@ int file_create(char __user *filename, int reason, int type, int sn, int att_uid
 			STING_SYSCALL(s_fd = sys_socket(AF_UNIX, SOCK_STREAM, 0));
 			if (s_fd > 0) {
 				sock.sun_family = AF_UNIX;
-				strcpy(sock.sun_path, filename);
+				strcpy(sock.sun_path, fname);
 				STING_SYSCALL(ret = sys_bind(s_fd,
 					(struct sockaddr *) &sock,
 					sizeof(struct sockaddr_un)));
 				STING_SYSCALL(sys_close(s_fd));
 			}
 		} else if (type == T_DIR) {
-			STING_SYSCALL(ret = sys_mkdir(filename, 0777));
+			STING_SYSCALL(ret = sys_mkdir(fname, 0777));
 			if (ret == -ENOENT) ;
-//					printk(KERN_INFO STING_MSG "Directory creation required: %s\n", filename);
+//					printk(KERN_INFO STING_MSG "Directory creation required: %s\n", fname);
 		}
 restore:
 		/* Restore original creds */
@@ -459,7 +571,7 @@ mark:
 			((reason == REASON_SQUAT) ? "Squat" :
 			 ((reason == REASON_TOCTTOU_RUNTIME) ? "Tocttou check" :
 			 "Error")),
-			filename, current->cred->fsuid,
+			fname, current->cred->fsuid,
 			uid_array[att_uid_ind][0], current->comm, sn);
 		} else if ((reason == REASON_TARGET) || (reason == REASON_NORMAL_RUNTIME)) {
 			STING_LOG(
@@ -467,21 +579,32 @@ mark:
 			((reason == REASON_TARGET) ? "Target" :
 			 ((reason == REASON_NORMAL_RUNTIME) ? "Normal Runtime" :
 			 "Error")),
-			filename, current->cred->fsuid,
+			fname, current->cred->fsuid,
 			current->comm, sn);
 		}
 
 		/* Set xattr on created file if needed */
 		if (reason == REASON_SQUAT || reason == REASON_TARGET) {
-			ret = set_attacked(filename, DONT_FOLLOW);
+			if (reason == REASON_SQUAT)
+				sting_set_res_type(current, ADV_RES);
+			else if (reason == REASON_TARGET)
+				sting_set_res_type(current, NORMAL_RES);
+			ret = set_attacked(fname, DONT_FOLLOW);
 			if (ret < 0)
-				printk(KERN_INFO STING_MSG "Labeling %s failed: %d!\n", filename, ret);
+				printk(KERN_INFO STING_MSG "Labeling %s failed: %d!\n", fname, ret);
 		}
 	}
 
+	dput(child);
+out:
 	BUG_ON(current->cred != current->real_cred);
 	BUG_ON(current->cred->group_info != current->real_cred->group_info);
+	sting_set_res_type(current, c_res_type);
 	return ret;
+
+fail:
+	revert_creds(old_cred);
+	goto out;
 }
 
 
@@ -496,46 +619,69 @@ mark:
  * If file already exists, attacker tries deleting first.
  * Hard links need files to point to, that is also done here.
  * XATTRs set on links and actual files if created.
+ * TODO: The target of hard link needs to be created
+ * on the same filesystem as the link itself. For unionfs,
+ * in addition, sys_link() should have two resolution modes -
+ * the last component of source's resolution context is ADV_RES,
+ * whereas the last component of target's resolution context is
+ * ADV_NORMAL_RES.
  */
 
-int hardlink_create(char *filename, int type, int sn, int att_uid_ind)
+int hardlink_create(char *source, char *target, struct path *parent,
+		int type, int sn, int att_uid_ind)
 {
 	const struct cred *old_cred;
 	int ret = 0; /* index of attacker in uid_array */
 	mm_segment_t old_fs = get_fs();
-	char *tmp_f = kzalloc(PATH_MAX, GFP_ATOMIC);
 	int exists = 0;
 	int orig_fsuid = 0; /* Original UID of process */
-	struct stat64 buf;
+	struct dentry *child = NULL;
+	int c_res_type;
 
-	if (!tmp_f)
-		return -ENOMEM;
+	c_res_type = sting_get_res_type(current);
 
-	exists = already_exists(filename, DONT_FOLLOW, &buf);
 	orig_fsuid = current->cred->fsuid;
+	mutex_lock(&parent->dentry->d_inode->i_mutex);
+	child = lookup_one_len(source, parent->dentry, strlen(source));
+	mutex_unlock(&parent->dentry->d_inode->i_mutex);
+	if (IS_ERR(child)) {
+		ret = PTR_ERR(child);
+		goto out;
+	}
+
+	/* does it exist on the non-adversarial branch? */
+	exists = sting_obj_exists(child, STING_NON_ADV_BID);
 
 	/* Change creds to attacker's */
 	old_cred = set_creds(uid_array[att_uid_ind]);
-	get_existing_target_file(orig_fsuid, filename, tmp_f, TYPE_HARDLINK);
-	/* TODO: Preserve file contents somehow */
+
 	/* Try deleting first if exists */
 	if (exists) {
-		STING_SYSCALL(ret = sys_unlink(filename));
-		if (ret < 0) {
-			if (ret == -ENOENT) {
-				printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
-			} else if (ret == -EACCES || ret == -EPERM) {
-				STING_LOG("Cannot access! permission module error!: "
-				"%s, proc euid: %d attacker uid: %d, process: %s system call: %d\n",
-				filename, current->real_cred->fsuid, uid_array[att_uid_ind][0],
-				current->comm, sn);
-			} else {
-				STING_LOG("Delete SUCCESS for hardlink!: %s, proc euid: "
-						"%d attacker uid: %d, process: %s system call: %d\n",
-						filename, current->real_cred->fsuid, uid_array[att_uid_ind][0]
-						, current->comm, sn);
+		if (!is_unionfs(child)) {
+			STING_SYSCALL(ret = sys_unlink(source));
+			if (ret < 0) {
+				if (ret == -ENOENT) {
+					printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
+				} else if (ret == -EACCES || ret == -EPERM) {
+					STING_LOG("Cannot access! permission module error!: "
+					"%s, proc euid: %d attacker uid: %d, process: %s system call: %d\n",
+					source, current->real_cred->fsuid, uid_array[att_uid_ind][0],
+					current->comm, sn);
+				} else {
+					STING_LOG("Delete SUCCESS for hardlink!: %s, proc euid: "
+							"%d attacker uid: %d, process: %s system call: %d\n",
+							source, current->real_cred->fsuid, uid_array[att_uid_ind][0]
+							, current->comm, sn);
+				}
+				goto restore;
 			}
-			goto restore;
+		} else {
+			/* no actual deletion, but if done properly, the shadow resolution
+			 * already evaluated delete permission on the lower branch */
+			STING_LOG("Delete SUCCESS for hardlink!: %s, proc euid: "
+					"%d attacker uid: %d, process: %s system call: %d\n",
+					source, current->real_cred->fsuid, uid_array[att_uid_ind][0]
+					, current->comm, sn);
 		}
 	}
 
@@ -543,17 +689,18 @@ int hardlink_create(char *filename, int type, int sn, int att_uid_ind)
 	/* TODO: Once everyone uses permission module, below revert_creds and set_creds
 		will disappear */
 	revert_creds(old_cred);
-	ret = file_create(tmp_f, REASON_TARGET, type, sn, att_uid_ind);
+	ret = file_create(target, parent, REASON_TARGET, type, sn, att_uid_ind);
 	old_cred = set_creds(uid_array[att_uid_ind]);
 	/* Create the hardlink */
-	STING_SYSCALL(ret = sys_link(tmp_f, filename));
+	sting_set_res_type(current, ADV_RES);
+	STING_SYSCALL(ret = sys_link(target, source));
 	if (ret == -ENOENT) ;
-//			printk(KERN_INFO STING_MSG "Directory creation required: %s\n", filename);
+//			printk(KERN_INFO STING_MSG "Directory creation required: %s\n", source);
 	if (ret < 0) {
 		if (ret == -EACCES || ret == -EPERM) {
 			STING_LOG("Cannot access! permission module error!: %s, proc "
 					"euid: %d attacker uid: %d, process: %s system call: %d\n",
-					filename, current->real_cred->fsuid,
+					source, current->real_cred->fsuid,
 					uid_array[att_uid_ind][0], current->comm, sn);
 		}
 		goto restore;
@@ -565,20 +712,22 @@ restore:
 	if (ret == 0) {
 		/* Success! */
 		STING_LOG("Hardlink SUCCESS!: %s, proc euid: %d attacker uid: %d, "
-				"process: %s, link to %s, system call: %d\n", filename,
+				"process: %s, link to %s, system call: %d\n", source,
 				current->cred->fsuid, uid_array[att_uid_ind][0],
-				current->comm, tmp_f, sn);
+				current->comm, target, sn);
 		/* Set xattr on attacker hardlink */
-		ret = set_attacked(filename, DONT_FOLLOW);
+		sting_set_res_type(current, ADV_RES);
+		ret = set_attacked(source, DONT_FOLLOW);
 		if (ret < 0) {
-			printk(KERN_INFO STING_MSG "Labeling %s failed: %d!\n", filename, ret);
+			printk(KERN_INFO STING_MSG "Labeling %s failed: %d!\n", source, ret);
 		}
 	}
-
+	dput(child);
+out:
 	BUG_ON(current->cred != current->real_cred);
 	BUG_ON(current->cred->group_info != current->real_cred->group_info);
-	if (tmp_f)
-		kfree(tmp_f);
+	sting_set_res_type(current, c_res_type);
+
 	return ret;
 }
 
@@ -601,61 +750,76 @@ restore:
  * XATTRs set on links and actual files if created.
  */
 
-int symlink_create(char *filename, int flag, int sn, int att_uid_ind)
+int symlink_create(char *source, char *target, struct path *parent,
+		int flag, int sn, int att_uid_ind)
 {
 	const struct cred *old_cred;
 	int ret = 0;
 	mm_segment_t old_fs = get_fs();
-	char *tmp_f = kzalloc(PATH_MAX, GFP_ATOMIC);
 	int exists = 0;
 	int orig_fsuid = 0; /* Original UID of process */
-	struct stat64 buf;
+	struct dentry *child = NULL;
+	int c_res_type;
 
-	/* TODO: trasnlate all calls to use *at(), after geting file from dentry */
+	c_res_type = sting_get_res_type(current);
 
-	if (!tmp_f)
-		return -ENOMEM;
-
-	exists = already_exists(filename, DONT_FOLLOW, &buf);
-
+	sting_set_res_type(current, ADV_NORMAL_RES);
 	orig_fsuid = current->cred->fsuid;
+	mutex_lock(&parent->dentry->d_inode->i_mutex);
+	child = lookup_one_len(source, parent->dentry, strlen(source));
+	mutex_unlock(&parent->dentry->d_inode->i_mutex);
+	if (IS_ERR(child)) {
+		ret = PTR_ERR(child);
+		goto out;
+	}
+
+	/* does it exist on the non-adversarial branch? */
+	exists = sting_obj_exists(child, STING_NON_ADV_BID);
 
 	/* Change creds to attacker's */
 	old_cred = set_creds(uid_array[att_uid_ind]);
 
-	if (flag == CREATE_FILE_NONEXISTENT) {
-		/* Point to non-existent file */
-		get_new_target_file(orig_fsuid, filename, tmp_f);
-	} else if (flag == CREATE_FILE_EXISTENT) {
-		/* Point to existing file */
-		get_existing_target_file(orig_fsuid, filename, tmp_f, TYPE_SYMLINK);
-	} else if (flag == CREATE_DIR) {
-		/* Point to existing directory */
-		get_existing_target_dir(orig_fsuid, filename, tmp_f);
-	}
-
 	if (exists) {
-		/* TODO: If CREATE_FILE_EXISTENT,
-		   then preserve file contents using
-		rename, and do not call REASON_TARGET */
-		/* Try deleting first */
-		STING_SYSCALL(ret = sys_unlink(filename));
-		if (ret < 0) {
-			if (ret == -ENOENT)
-				printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
-			goto restore;
+		if (!is_unionfs(child)) {
+			/* TODO: If CREATE_FILE_EXISTENT,
+			   then preserve file contents using
+			rename, and do not call REASON_TARGET */
+			/* Try deleting first */
+			if (!S_ISDIR(child->d_inode->i_mode)) {
+				STING_SYSCALL(ret = sys_unlink(source));
+			} else {
+				STING_SYSCALL(ret = sys_rmdir(source));
+			}
+
+			if (ret < 0 && ret != -ENOENT) {
+				// if (ret == -ENOENT)
+				//	printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
+				goto restore;
+			} else {
+				STING_LOG("Delete SUCCESS for symlink!: %s, proc euid: %d "
+						"attacker uid: %d, process: %s system call: %d\n",
+						source, current->real_cred->fsuid,
+						uid_array[att_uid_ind][0], current->comm, sn);
+			}
 		} else {
+			/* no actual deletion, but if done properly, the shadow resolution
+			 * already evaluated delete permission on the lower branch */
 			STING_LOG("Delete SUCCESS for symlink!: %s, proc euid: %d "
 					"attacker uid: %d, process: %s system call: %d\n",
-					filename, current->real_cred->fsuid,
+					source, current->real_cred->fsuid,
 					uid_array[att_uid_ind][0], current->comm, sn);
 		}
 	}
 
 	/* Create the symlink */
-	STING_SYSCALL(ret = sys_symlink(tmp_f, filename));
-	if (ret == -ENOENT) ;
-//			printk(KERN_INFO STING_MSG "Directory creation required: %s\n", filename);
+	sting_set_res_type(current, ADV_NORMAL_RES);
+	if (is_unionfs(child)) {
+		sting_symlink(target, parent, child);
+	} else {
+		STING_SYSCALL(ret = sys_symlinkat(target, AT_FDCWD, source));
+	}
+	if (ret == -ENOENT)
+		STING_ERR(0, "failed to create symlink: [%s -> %s]\n", source, target);
 
 restore:
 	/* Restore original creds */
@@ -663,46 +827,50 @@ restore:
 
 	if (ret == 0) {
 		/* Success! */
+		sting_set_res_type(current, ADV_RES);
 		STING_LOG("Symlink attack launched: [%s,%lx], script entrypoint: [%s,%d], "
-				"filename: [%s], proc euid: [%d], attacker uid: [%d], "
+				"source: [%s], proc euid: [%d], attacker uid: [%d], "
 				"process: [%s], link to [%s], system call: [%d]\n",
 				current->comm, ept_offset_get(&current->user_stack),
 				int_ept_exists(&current->user_stack) ? int_ept_filename_get(&current->user_stack) : "(null)",
 				int_ept_exists(&current->user_stack) ? int_ept_lineno_get(&current->user_stack) : 0,
-				filename, current->cred->fsuid, uid_array[att_uid_ind][0],
-				current->comm, tmp_f, sn);
+				source, current->cred->fsuid, uid_array[att_uid_ind][0],
+				current->comm, target, sn);
 		/* Set xattr on attacker symlink */
-		ret = set_attacked(filename, DONT_FOLLOW);
+		ret = set_attacked(source, DONT_FOLLOW);
 		if (ret < 0) {
-			printk(KERN_INFO STING_MSG "Labeling %s failed: %d!\n", filename, ret);
+			printk(KERN_INFO STING_MSG "Labeling %s failed: %d!\n", source, ret);
 		}
 		/* Create existing file if needed */
 		if ((flag & CREATE_FILE_EXISTENT)
 				|| (flag & CREATE_DIR)) {
 			/* If existing file/dir requested, create it */
 			if (flag & CREATE_FILE_EXISTENT) {
-				ret = file_create(tmp_f, REASON_TARGET, T_REG, sn, att_uid_ind);
+				ret = file_create(target, parent, REASON_TARGET, T_REG, sn, att_uid_ind);
 			} else if (flag & CREATE_DIR) {
-				ret = file_create(tmp_f, REASON_TARGET, T_DIR, sn, att_uid_ind);
+				ret = file_create(target, parent, REASON_TARGET, T_DIR, sn, att_uid_ind);
 			}
 			if (ret < 0) {
-				printk(KERN_INFO STING_MSG "Actual create %s failed!\n", tmp_f);
+				printk(KERN_INFO STING_MSG "Actual create %s failed!\n", target);
 			} else {
-				ret = set_attacked(filename, FOLLOW);
+				sting_set_res_type(current, NORMAL_RES);
+				ret = set_attacked(target, FOLLOW);
 				if (ret < 0) {
-					printk(KERN_INFO STING_MSG "Labeling target of %s failed: %d!\n", filename, ret);
+					printk(KERN_INFO STING_MSG "Labeling target of %s failed: %d!\n", source, ret);
 				}
 			}
 		}
 	} else {
 		STING_LOG("sting: [%d] couldn't create [%s] although has permission!\n",
-			uid_array[att_uid_ind][0], filename);
+			uid_array[att_uid_ind][0], source);
 	}
 
+	dput(child);
+out:
 	BUG_ON(current->cred != current->real_cred);
 	BUG_ON(current->cred->group_info != current->real_cred->group_info);
-	if (tmp_f)
-		kfree(tmp_f);
+	sting_set_res_type(current, c_res_type);
+
 	return ret;
 }
 
@@ -722,9 +890,13 @@ int should_skip(char __user *filename)
 }
 
 
-static int get_attacked_path(char *fname, struct path *attacked)
+static int get_attacked_path(char *fname, struct path *path)
 {
-	return kern_path(fname, 0, attacked);
+	int err = 0;
+	/* first, initial file */
+	err = kern_path(fname, 0, path);
+
+	return err;
 }
 
 /* don't drop reference to old path. don't get reference to
@@ -759,30 +931,33 @@ void temp_restore_cwd(struct path *old)
  * @parent:			Parent path
  * @a_ind:			Identity of attacker (index in uid_array)
  * @attack_type:	%SYMLINK, %HARDLINK, %SQUAT
- * @fpath:			path of attacked resource (to be filled in)
+ * @sting:			struct sting (whose path and target_path are filled in)
  */
 
-int sting_launch_attack(char *fname, struct path *parent,
-		int a_ind, int attack_type, struct path *fpath)
+int sting_launch_attack(char *source, struct path *parent,
+		int a_ind, int attack_type, struct sting *sting)
 {
 	int tret = 0;
 	struct pt_regs *ptregs = task_pt_regs(current);
 	int sn = ptregs->orig_ax;
 
 	struct path old_cwd;
+	struct path child;
+	struct nameidata *nd;
 
-	#if 0
-	/* Cases of random filenames etc., allow through */
-	if (should_skip(fname)) {
-		goto out;
-	}
-	#endif
+	char *target = NULL;
+	uid_t uid = current->cred->fsuid;
 
-	/* chdir to parent, so syscalls reduce to their *at() versions */
+	target = kzalloc(PATH_MAX, GFP_ATOMIC);
+	if (!target)
+		return -ENOMEM;
+
+
+	/* chdir to parent */
 	temp_switch_cwd(parent, &old_cwd);
 
-	/* TODO: Can we model this in terms of in_set() alone? */
-	if (attack_type & SYMLINK) {
+	switch(attack_type) {
+	case SYMLINK:
 		if (in_set(sn, create_set) || bind_call(sn)) {
 			if (((sn == __NR_open) && (ptregs->cx & O_CREAT)
 			&& (!(ptregs->cx & O_NOFOLLOW))) ||
@@ -791,7 +966,9 @@ int sting_launch_attack(char *fname, struct path *parent,
 			&& (!(ptregs->dx & O_NOFOLLOW)))
 			) {
 				/* Symlink to non-existent file */
-				tret = symlink_create(fname, CREATE_FILE_NONEXISTENT, sn, a_ind);
+				get_new_target_file(source, target, uid);
+				tret = symlink_create(source, target, parent, CREATE_FILE_NONEXISTENT, sn,
+						a_ind);
 			} else {
 				/* Symlink to existing file of right type -
 				 these don't follow symlinks */
@@ -799,39 +976,47 @@ int sting_launch_attack(char *fname, struct path *parent,
 				   symlinks, so no use creating symlinks to
 				   new files */
 				/* TODO: Other types */
-				if (sn == __NR_mkdir || sn == __NR_mkdirat)
-					tret = symlink_create(fname, CREATE_DIR, sn, a_ind);
-				else
-					tret = symlink_create(fname, CREATE_FILE_EXISTENT, sn, a_ind);
+				if (sn == __NR_mkdir || sn == __NR_mkdirat) {
+					get_existing_target_dir(source, target, uid);
+					tret = symlink_create(source, target, parent, CREATE_DIR, sn, a_ind);
+				} else {
+					get_existing_target_file(source, target, uid);
+					tret = symlink_create(source, target, parent, CREATE_FILE_EXISTENT, sn,
+							a_ind);
+				}
 			}
 		} else if (in_set(sn, use_set)) {
 			/* Symlink to existing file of right type */
 			/* Doesn't make sense for sockets */
-			if (sn == __NR_chdir)
-				tret = symlink_create(fname, CREATE_DIR, sn, a_ind);
-			else
-				tret = symlink_create(fname, CREATE_FILE_EXISTENT, sn, a_ind);
+			if (sn == __NR_chdir) {
+				get_existing_target_dir(source, target, uid);
+				tret = symlink_create(source, target, parent, CREATE_DIR, sn, a_ind);
+			} else {
+				get_existing_target_file(source, target, uid);
+				tret = symlink_create(source, target, parent, CREATE_FILE_EXISTENT, sn, a_ind);
+			}
 		}
-	} else if (attack_type & SQUAT) {
+		break;
+	case SQUAT:
 		/* Program may check for link, but may not check permissions or
 		 return value EEXIST */
 		if (in_set(sn, create_set) || bind_call(sn)) {
 			if (sn == __NR_mkdir || sn == __NR_mkdirat)
-				tret = file_create(fname, REASON_SQUAT, T_DIR, sn, a_ind);
+				tret = file_create(source, parent, REASON_SQUAT, T_DIR, sn, a_ind);
 			else if (sn == __NR_socketcall) /* bind */
-				tret = file_create(fname, REASON_SQUAT, T_SOCK, sn, a_ind);
+				tret = file_create(source, parent, REASON_SQUAT, T_SOCK, sn, a_ind);
 			else
-				tret = file_create(fname, REASON_SQUAT, T_REG, sn, a_ind);
+				tret = file_create(source, parent, REASON_SQUAT, T_REG, sn, a_ind);
 		} else if (in_set(sn, use_set) || connect_call(sn)) {
-			if (sn == __NR_chdir)
-				tret = file_create(fname, REASON_SQUAT, T_DIR, sn, a_ind);
+			if (sn == __NR_chdir); /* HACK */
+				// tret = file_create(source, parent, REASON_SQUAT, T_DIR, sn, a_ind);
 			else if (sn == __NR_socketcall) /* connect */
-				tret = file_create(fname, REASON_SQUAT, T_SOCK, sn, a_ind);
+				tret = file_create(source, parent, REASON_SQUAT, T_SOCK, sn, a_ind);
 			else
-				tret = file_create(fname, REASON_SQUAT, T_REG, sn, a_ind);
+				tret = file_create(source, parent, REASON_SQUAT, T_REG, sn, a_ind);
 		}
-	} else if (attack_type & HARDLINK) {
-
+		break;
+	case HARDLINK:
 		/* Can't create hardlink to non-existent file */
 		if (in_set(sn, create_set) || bind_call(sn) ||
 		in_set(sn, use_set) || connect_call(sn)) {
@@ -850,18 +1035,24 @@ int sting_launch_attack(char *fname, struct path *parent,
 				   Currently no such knowledge is tracked. */
 
 				/* High -> low redirection */
-				tret = hardlink_create(fname, T_SOCK, sn, a_ind);
+				get_existing_target_file(source, target, uid);
+				tret = hardlink_create(source, target, parent, T_SOCK, sn, a_ind);
 			} else {
-				tret = hardlink_create(fname, T_REG, sn, a_ind);
+				get_existing_target_file(source, target, uid);
+				tret = hardlink_create(source, target, parent, T_REG, sn, a_ind);
 			}
 		}
+		break;
+	default:
+		STING_ERR(0, "invalid attack type");
+		tret = -EINVAL;
 	}
 
 	#if 0
 	if (rt->check_find) {
 		if (in_set(sn, check_set)) {
 			/* TODO: Run with both is_dir = 1 and 0 */
-			file_create(fname, REASON_TOCTTOU_RUNTIME, T_REG, sn, a_ind);
+			file_create(source, REASON_TOCTTOU_RUNTIME, T_REG, sn, a_ind);
 		}
 	}
 	#endif
@@ -871,15 +1062,28 @@ int sting_launch_attack(char *fname, struct path *parent,
 	if (tret == 0) {
 		int r;
 		/* get reference to launched attack's dentry */
-		r = get_attacked_path(fname, fpath);
+		/* TODO: reduce the number of name resolutions by using vfs directly
+		 * and filling in the following inside symlink/hardlink/file create */
+		/* path_put for these paths are done by caller */
+		r = kern_path(source, 0, &sting->path);
 		if (r < 0) {
-			printk(KERN_INFO STING_MSG "Error getting dentry of already launched attack\n");
+			STING_ERR(0, "Error getting dentry of launched attack: [%s]\n", source);
 			tret = r;
+		}
+
+		if (attack_type & (SYMLINK | HARDLINK)) {
+			kern_path(target, 0, &sting->target_path);
+			if (r < 0 && r != -ENOENT) {
+				STING_ERR(0, "Error getting dentry of launched attack's target: [%s]\n", source);
+				tret = r;
+			}
 		}
 	}
 
 	/* restore cwd */
 	temp_restore_cwd(&old_cwd);
+	if (target)
+		kfree(target);
 	return tret;
 }
 EXPORT_SYMBOL(sting_launch_attack);

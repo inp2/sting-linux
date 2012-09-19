@@ -183,22 +183,26 @@ extern void sting_log_vulnerable_access(struct common_audit_data *a);
 #define ROLLBACK_INT   0x40
 #define NORMAL_RES_INT 0x80
 
-static inline void set_sting_res_type(struct task_struct *t, int type)
+static inline int sting_set_res_type(struct task_struct *t, int type)
 {
+	int c_res_type = (t->sting_res_type & RES_BRANCH_MASK);
 	t->sting_res_type = type;
+	return c_res_type;
 }
 
-static inline void set_sting_res_intent(struct task_struct *t, int flag)
+static inline int sting_set_res_intent(struct task_struct *t, int flag)
 {
+	int c_res_intent = (t->sting_res_type & RES_INTENT_MASK);
 	t->sting_res_type |= flag;
+	return c_res_intent;
 }
 
-static inline int get_sting_res_type(struct task_struct *t)
+static inline int sting_get_res_type(struct task_struct *t)
 {
 	return (t->sting_res_type & RES_BRANCH_MASK);
 }
 
-static inline int get_sting_res_intent(struct task_struct *t)
+static inline int sting_get_res_intent(struct task_struct *t)
 {
 	return (t->sting_res_type & RES_INTENT_MASK);
 }
@@ -209,15 +213,15 @@ static inline int get_sting_res_intent(struct task_struct *t)
 /* given lowest possible start */
 static inline int sting_res_branch_start(int cstart)
 {
-	switch(get_sting_res_type(current)) {
+	switch(sting_get_res_type(current)) {
 		case ADV_RES:
-			BUG_ON(STING_ADV_BID < cstart);
+//			BUG_ON(STING_ADV_BID < cstart);
 			return STING_ADV_BID;
 		case ADV_NORMAL_RES:
 			return (STING_ADV_BID < cstart) ? cstart : STING_ADV_BID;
 		case NA_RES:
 		case NORMAL_RES:
-			BUG_ON(STING_NON_ADV_BID < cstart);
+//			BUG_ON(STING_NON_ADV_BID < cstart);
 			return STING_NON_ADV_BID;
 		default:
 			BUG_ON(1);
@@ -227,15 +231,15 @@ static inline int sting_res_branch_start(int cstart)
 /* given highest possible end */
 static inline int sting_res_branch_end(int cend)
 {
-	switch(get_sting_res_type(current)) {
+	switch(sting_get_res_type(current)) {
 		case ADV_RES:
-			BUG_ON(STING_ADV_BID > cend);
+//			BUG_ON(STING_ADV_BID > cend);
 			return STING_ADV_BID;
 		case ADV_NORMAL_RES:
 			return (STING_NON_ADV_BID > cend) ? cend : STING_NON_ADV_BID;
 		case NA_RES:
 		case NORMAL_RES:
-			BUG_ON(STING_NON_ADV_BID > cend);
+//			BUG_ON(STING_NON_ADV_BID > cend);
 			return STING_NON_ADV_BID;
 		default:
 			BUG_ON(1);
@@ -244,7 +248,7 @@ static inline int sting_res_branch_end(int cend)
 
 static inline int sdbstart(void)
 {
-	switch (get_sting_res_type(current)) {
+	switch (sting_get_res_type(current)) {
 		case ADV_RES:
 		case ADV_NORMAL_RES:
 			return STING_ADV_BID;
@@ -257,7 +261,7 @@ static inline int sdbstart(void)
 
 static inline int sdbend(void)
 {
-	switch (get_sting_res_type(current)) {
+	switch (sting_get_res_type(current)) {
 		case ADV_RES:
 			return STING_ADV_BID;
 		case ADV_NORMAL_RES:

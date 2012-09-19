@@ -178,7 +178,7 @@ static int do_unionfs_rename(struct inode *old_dir,
 
 	/* sting: if a victim deletes topmost branch,
 	 * delete all other branches also */
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		old_bstart = dbstart(old_dentry);
 		old_bend = dbend(old_dentry);
 

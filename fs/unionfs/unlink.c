@@ -61,7 +61,7 @@ static int ___unionfs_unlink(struct inode *dir, struct dentry *dentry,
 
 	/* sting: if a victim deletes topmost branch,
 	 * delete all other branches also */
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		bstart = dbstart(dentry);
 		bend = dbend(dentry);
 	} else {
@@ -206,7 +206,7 @@ static int unionfs_rmdir_first(struct inode *dir, struct dentry *dentry,
 
 	/* sting: if a victim deletes topmost branch,
 	 * delete all other branches also */
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		bstart = dbstart(dentry);
 		bend = dbend(dentry);
 	} else {

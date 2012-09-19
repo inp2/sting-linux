@@ -232,7 +232,7 @@ struct cred *superuser_creds(void)
 {
 	struct cred *override_cred = NULL;
 	const struct cred *old_cred;
-	int ret = 0; 
+	int ret = 0;
 
 	override_cred = prepare_creds();
 	if (!override_cred) {
@@ -240,25 +240,25 @@ struct cred *superuser_creds(void)
 		goto out;
 	}
 
-	override_cred->uid = override_cred->gid = 0; 
-	override_cred->euid = override_cred->egid = 0; 
-	override_cred->fsuid = override_cred->fsgid = 0; 
-	override_cred->suid = override_cred->sgid = 0; 
+	override_cred->uid = override_cred->gid = 0;
+	override_cred->euid = override_cred->egid = 0;
+	override_cred->fsuid = override_cred->fsgid = 0;
+	override_cred->suid = override_cred->sgid = 0;
 
-	cap_raise(override_cred->cap_effective, CAP_SYS_ADMIN); 
+	cap_raise(override_cred->cap_effective, CAP_SYS_ADMIN);
 	cap_raise(override_cred->cap_effective, CAP_DAC_READ_SEARCH);
 	cap_raise(override_cred->cap_effective, CAP_DAC_OVERRIDE);
 	cap_raise(override_cred->cap_effective, CAP_FOWNER);
 
-	old_cred = override_creds(override_cred); 
+	old_cred = override_creds(override_cred);
 
 	/* don't need alloc reference anymore */
-	put_cred(override_cred); 
+	put_cred(override_cred);
 
 out:
 	return (ret < 0) ? (struct cred *) ERR_PTR(ret) : old_cred;
 }
-EXPORT_SYMBOL(superuser_creds); 	
+EXPORT_SYMBOL(superuser_creds);
 
 /**
  * set_creds() - Change the credentials of current process temporarily
@@ -346,12 +346,13 @@ static inline int check_sticky(struct inode *dir, struct inode *inode)
 	return !capable(CAP_FOWNER);
 }
 
-static inline int may_create_noexist(struct inode *dir)
+int may_create_noexist(struct inode *dir)
 {
 	if (IS_DEADDIR(dir))
 		return -ENOENT;
 	return inode_permission(dir, MAY_WRITE | MAY_EXEC);
 }
+EXPORT_SYMBOL(may_create_noexist);
 
 static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
 {
@@ -389,12 +390,12 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
    except as the current UID and primary group (?) of the victim
    process. Is this true?
 
- * TODO: add unmount as a method to delete. 
+ * TODO: add unmount as a method to delete.
  */
 
 #define ND_INODE(nd) nd.path.dentry->d_inode
 
-static int adv_has_perm(int adv_ind, struct dentry *parent, 
+static int adv_has_perm(int adv_ind, struct dentry *parent,
 		struct dentry *child, int flags)
 {
 	int match = UID_NO_MATCH, ret = 0;
@@ -417,7 +418,7 @@ static int adv_has_perm(int adv_ind, struct dentry *parent,
 
 	if ((flags & ATTACKER_BIND) || (flags & ATTACKER_PREBIND)) {
 		/* Check creation, disregarding actual file existence */
-		ret = may_create_noexist(parent->d_inode); 
+		ret = may_create_noexist(parent->d_inode);
 		if (ret)
 			goto no_match;
 	}
@@ -445,11 +446,11 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 	uid_t u;
 	gid_t g;
 
-	BUG_ON(parent == NULL); 
+	BUG_ON(parent == NULL);
 	if (parent->d_inode == NULL) {
 		/* someone changed our parent while we were inside
 			(e.g., rm -r), simply ignore */
-		return match; 
+		return match;
 	}
 	/* Try parent directory owner if not current UID */
 	u = parent->d_inode->i_uid;
@@ -470,7 +471,7 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 			continue;
 		for (j = 1; uid_array[i][j]; j++) {
 			if (g == uid_array[i][j]) {
-				ret = adv_has_perm(i, parent, child, flags); 
+				ret = adv_has_perm(i, parent, child, flags);
 				if (ret == 1) {
 					match = i;
 					goto found;
@@ -483,7 +484,7 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 	if (sting_adversary_uid != -1)
 		for (i = 0; uid_array[i][0]; i++)
 			if (uid_array[i][0] == sting_adversary_uid) {
-				ret = adv_has_perm(i, parent, child, flags); 
+				ret = adv_has_perm(i, parent, child, flags);
 				if (ret == 1) {
 					match = i;
 					goto found;

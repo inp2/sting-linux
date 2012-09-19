@@ -14,6 +14,10 @@ static int check_set[] = {
 	__NR_faccessat,
 	__NR_statfs,
 	__NR_statfs64,
+	__NR_lgetxattr,
+	__NR_llistxattr,
+	__NR_listxattr,
+	__NR_getxattr,
 	-1
 };
 
@@ -40,7 +44,7 @@ static int use_set[] = {
 	/* __NR_open, 2nd - ~O_CREAT */
 	/* __NR_unlink, */
 	/* __NR_execve, */
-	__NR_chdir,
+	// __NR_chdir,
 	__NR_chmod,
 	__NR_mount,
 	__NR_utime,
@@ -54,10 +58,10 @@ static int use_set[] = {
 	__NR_mount,
 	__NR_setxattr,
 	__NR_lsetxattr,
-	__NR_getxattr,
-	__NR_lgetxattr,
-	__NR_listxattr,
-	__NR_llistxattr,
+	// __NR_getxattr,
+	// __NR_lgetxattr,
+	// __NR_listxattr,
+	// __NR_llistxattr,
 	__NR_removexattr,
 	__NR_lremovexattr,
 	__NR_utimes,
@@ -111,7 +115,7 @@ static int first_arg_set[] = {
 	__NR_link,
 	/* __NR_unlink, */
 	/* __NR_execve, */
-	__NR_chdir,
+	// __NR_chdir,
 	__NR_mknod,
 	__NR_chmod,
 	__NR_mount,
@@ -258,4 +262,4 @@ static inline int in_set(int sn, int *array)
 	return 0;
 }
 
-extern char *get_syscall_fname(void); 
+extern char *get_syscall_fname(void);

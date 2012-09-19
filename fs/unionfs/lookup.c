@@ -329,8 +329,10 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	}
 
 	/* Now start the actual lookup procedure. */
-	bstart = sting_res_branch_start(dbstart(parent));
-	bend = sting_res_branch_end(dbend(parent));
+
+	/* get the branches we have to lookup for sting */
+	tdbstart(dentry) = bstart = sting_res_branch_start(dbstart(parent));
+	tdbend(dentry) = bend = sting_res_branch_end(dbend(parent));
 
 //	bopaque = (nd->flags & LOOKUP_LAST) ?
 //				sting_res_branch_start(dbopaque(parent)) : dbopaque(parent);
@@ -560,9 +562,6 @@ out_free:
 	UNIONFS_D(dentry)->lower_paths = NULL;
 
 out:
-	tdbstart(dentry) = sdbstart();
-	tdbend(dentry) = sdbend();
-
 	if (dentry && UNIONFS_D(dentry)) {
 		BUG_ON(dbstart(dentry) < 0 && dbend(dentry) >= 0);
 		BUG_ON(dbstart(dentry) >= 0 && dbend(dentry) < 0);

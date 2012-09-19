@@ -21,10 +21,19 @@
 
 /* sting modifications:
  * 1. disable copyup, whiteout, opaque directory.
- * 2. return error if cannot write to chosen branch.
- * 3. if a victim deletes or renames upper,
- * 		delete or rename lower also (as there is no opacity or whiteout concept).
- * 4. victim process always creates on lower branch.
+ *		copyup needed only while launching attacks, to extend directory structure.
+ * 		return error if cannot write to chosen branch, instead of unionfs copyup.
+ * 2. if a process deletes or renames upper,
+ * 		delete or rename all visible lower also (as there is no opacity or whiteout).
+ * 3. revalidate parent dentries recursively if parents do not contain all
+ *		branches we want (unionfs_d_revalidate_recursive)
+ * 4. maintain i_nlink on directories on ls (so we see only what we should see)
+ *		instead of bothering with maintaining i_nlink, simply unconditionally
+ *		revalidate all directories.
+ *			TODO: in creation and deletion operations, take care to update
+ *			i_nlink properly, or mark parent as requiring revalidation.
+ * 5. out-of-band creation needed for upper branch, because we need to only use
+ *		the adversary branch on the last element for copyup.
  */
 
 /*
@@ -47,65 +56,74 @@ static struct dentry *find_writeable_branch(struct inode *parent,
 		goto out;
 
 begin:
-	for (bindex = istart; bindex <= iend; bindex++) {
-		/* skip non-writeable branches */
-		err = is_robranch_super(dentry->d_sb, bindex);
-		if (err) {
-			err = -EROFS;
-			goto out;
+	/* if we are launching an attack, we always copyup and
+	 * create on upper branch, even if lower branch is
+	 * writeable */
+	if (sting_get_res_intent(current) != LAUNCH_INT) {
+		for (bindex = istart; bindex <= iend; bindex++) {
+			/* skip non-writeable branches */
+			err = is_robranch_super(dentry->d_sb, bindex);
+			if (err) {
+				err = -EROFS;
+				goto out;
+			}
+			lower_dentry = unionfs_lower_dentry_idx(dentry, bindex);
+			if (!lower_dentry)
+				continue;
+	#if 0
+			/*
+			 * check for whiteouts in writeable branch, and remove them
+			 * if necessary.
+			 */
+			err = check_unlink_whiteout(dentry, lower_dentry, bindex);
+			if (err > 0)	/* ignore if whiteout found and removed */
+				err = 0;
+	#endif
+			if (err)
+				continue;
+			/* if get here, we can write to the branch */
+			break;
 		}
-		lower_dentry = unionfs_lower_dentry_idx(dentry, bindex);
-		if (!lower_dentry)
-			continue;
-#if 0
+
+	#if 0
 		/*
-		 * check for whiteouts in writeable branch, and remove them
-		 * if necessary.
+		 * If istart wasn't already branch 0, and we got any error, then try
+		 * branch 0 (which may require copyup)
 		 */
-		err = check_unlink_whiteout(dentry, lower_dentry, bindex);
-		if (err > 0)	/* ignore if whiteout found and removed */
-			err = 0;
-#endif
-		if (err)
-			continue;
-		/* if get here, we can write to the branch */
-		break;
-	}
-
-#if 0
-	/*
-	 * If istart wasn't already branch 0, and we got any error, then try
-	 * branch 0 (which may require copyup)
-	 */
-	if (err && istart > 0) {
-		istart = iend = 0;
-		goto begin;
-	}
-
-	/*
-	 * If we tried even branch 0, and still got an error, abort.  But if
-	 * the error was an EROFS, then we should try to copyup.
-	 */
-	if (err && err != -EROFS)
-		goto out;
-#endif
-	if (err)
-		goto out;
-
-	/*
-	 * If we get here, then check if copyup needed.  If lower_dentry is
-	 * NULL, create the entire dentry directory structure in branch 0.
-	 */
-	if (!lower_dentry) {
-		bindex = 0;
-		lower_dentry = create_parents(parent, dentry,
-					      dentry->d_name.name, bindex);
-		if (IS_ERR(lower_dentry)) {
-			err = PTR_ERR(lower_dentry);
-			goto out;
+		if (err && istart > 0) {
+			istart = iend = 0;
+			goto begin;
 		}
+
+		/*
+		 * If we tried even branch 0, and still got an error, abort.  But if
+		 * the error was an EROFS, then we should try to copyup.
+		 */
+		if (err && err != -EROFS)
+			goto out;
+	#endif
+		if (err)
+			goto out;
+	} else {
+		lower_dentry = unionfs_lower_dentry_idx(dentry, STING_ADV_BID);
 	}
-	err = 0;		/* all's well */
+
+	if (sting_get_res_intent(current) == LAUNCH_INT) {
+		/*
+		 * copyup only for sting launch attacks.  If lower_dentry is
+		 * NULL, create the entire dentry directory structure in branch 0.
+		 */
+		if (!lower_dentry) {
+			bindex = STING_ADV_BID;
+			lower_dentry = create_parents(parent, dentry,
+							  dentry->d_name.name, bindex);
+			if (IS_ERR(lower_dentry)) {
+				err = PTR_ERR(lower_dentry);
+				goto out;
+			}
+		}
+		err = 0;		/* all's well */
+	}
 out:
 	if (err)
 		return ERR_PTR(err);
@@ -130,10 +148,10 @@ static int unionfs_create(struct inode *dir, struct dentry *dentry,
 
 	/* this reflects the more general problem of change of state
 	 * between shadow resolution and actual resolution */
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		/* someone deleted upper resource after shadow resolution */
 		STING_LOG("shadow resolution creation race");
-		set_sting_res_type(current, NORMAL_RES);
+		sting_set_res_type(current, NORMAL_RES);
 	}
 
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
@@ -205,6 +223,23 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
 	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
 
+	/* if our parent does not have required branches, we have to revalidate the
+	 * parent and its parent and so on, until we get to a point that has what
+	 * we need. we got into this position because we changed the branch
+	 * visible, and the branch we need is not available in the parent directory,
+	 * because it itself was resolved in the different context, and so on.  */
+
+	if ((tdbstart(parent) > sdbstart()) || tdbend(parent) < sdbend()) {
+		struct dentry *gparent;
+		gparent = unionfs_lock_parent(parent, UNIONFS_DMUTEX_PARENT);
+		err = unionfs_d_revalidate_recursive(parent, gparent);
+		unionfs_unlock_parent(parent, gparent);
+		if (!err) {
+			ret = ERR_PTR(-ESTALE);
+			goto out;
+		}
+	}
+
 	/*
 	 * As long as we lock/dget the parent, then can skip validating the
 	 * parent now; we may have to rebuild this dentry on the next
@@ -255,10 +290,10 @@ static int unionfs_link(struct dentry *old_dentry, struct inode *dir,
 	char *name = NULL;
 	bool valid;
 
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		/* someone deleted upper resource after shadow resolution */
 		STING_LOG("shadow resolution creation race");
-		set_sting_res_type(current, NORMAL_RES);
+		sting_set_res_type(current, NORMAL_RES);
 	}
 
 	unionfs_read_lock(old_dentry->d_sb, UNIONFS_SMUTEX_CHILD);
@@ -407,10 +442,11 @@ static int unionfs_symlink(struct inode *dir, struct dentry *dentry,
 	int valid = 0;
 	umode_t mode;
 
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if ((sting_get_res_type(current) == ADV_NORMAL_RES) &&
+			(sting_get_res_intent(current) != LAUNCH_INT)) {
 		/* someone deleted upper resource after shadow resolution */
 		STING_LOG("shadow resolution creation race");
-		set_sting_res_type(current, NORMAL_RES);
+		sting_set_res_type(current, NORMAL_RES);
 	}
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
 	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
@@ -443,13 +479,26 @@ static int unionfs_symlink(struct inode *dir, struct dentry *dentry,
 	mode = S_IALLUGO;
 	err = vfs_symlink(lower_parent_dentry->d_inode, lower_dentry, symname);
 	if (!err) {
-		err = PTR_ERR(unionfs_interpose(dentry, dir->i_sb, 0));
-		if (!err) {
+		/* sting: since we can be called with a positive inode by launch attack,
+		 * deal with that case */
+		if (dentry->d_inode) {
+			/* force revalidation */
+			tdbstart(dentry) = tdbend(dentry) = -1;
+			#if 0
+			__unionfs_d_revalidate(dentry, parent, false);
+			#endif
 			unionfs_copy_attr_times(dir);
 			fsstack_copy_inode_size(dir,
 						lower_parent_dentry->d_inode);
-			/* update no. of links on parent directory */
-			set_nlink(dir, unionfs_get_nlinks(dir));
+		} else {
+			err = PTR_ERR(unionfs_interpose(dentry, dir->i_sb, 0));
+			if (!err) {
+				unionfs_copy_attr_times(dir);
+				fsstack_copy_inode_size(dir,
+							lower_parent_dentry->d_inode);
+				/* update no. of links on parent directory */
+				set_nlink(dir, unionfs_get_nlinks(dir));
+			}
 		}
 	}
 
@@ -480,10 +529,10 @@ static int unionfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	char *name = NULL;
 	int valid;
 
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		/* someone deleted upper resource after shadow resolution */
 		STING_LOG("shadow resolution creation race");
-		set_sting_res_type(current, NORMAL_RES);
+		sting_set_res_type(current, NORMAL_RES);
 	}
 
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
@@ -615,10 +664,10 @@ static int unionfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 	char *name = NULL;
 	int valid = 0;
 
-	if (get_sting_res_type(current) == ADV_NORMAL_RES) {
+	if (sting_get_res_type(current) == ADV_NORMAL_RES) {
 		/* someone deleted upper resource after shadow resolution */
 		STING_LOG("shadow resolution creation race");
-		set_sting_res_type(current, NORMAL_RES);
+		sting_set_res_type(current, NORMAL_RES);
 	}
 
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);

@@ -15,8 +15,9 @@ static inline int sting_valid_adversary(int adv_uid_ind)
 	return ((adv_uid_ind >= 0) && (adv_uid_ind != UID_NO_MATCH));
 }
 
-int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags); 
-struct cred *set_creds(uid_t *ug_list); 
-struct cred *superuser_creds(void); 
+int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags);
+struct cred *set_creds(uid_t *ug_list);
+struct cred *superuser_creds(void);
+int may_create_noexist(struct inode *dir);
 
 extern uid_t uid_array[MAX_USERS][GRP_MEMB_MAX];

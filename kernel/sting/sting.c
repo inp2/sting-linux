@@ -279,6 +279,8 @@ void sting_list_add(struct sting *st)
 			);
 	down_write(&stings_rwlock);
 	path_get(&news->path);
+	if (news->target_path.dentry)
+		path_get(&news->target_path);
 	list_add_tail(&news->list, &sting_list.list);
 	up_write(&stings_rwlock);
 }
@@ -292,6 +294,8 @@ void sting_list_del(struct sting *st)
 			st->path.dentry->d_name.name,
 			uid_array[st->adv_uid_ind][0], current->cred->fsuid);
 	path_put(&st->path);
+	if (st->target_path.dentry)
+		path_put(&st->target_path);
 	down_write(&stings_rwlock);
 	list_del(&st->list);
 	up_write(&stings_rwlock);
@@ -439,7 +443,7 @@ void sting_mark_vulnerable(struct ept_dict_val *v, int attack_type)
 	v->attack_history |= attack_type;
 }
 
-static int is_attackable_syscall(struct task_struct *t)
+int is_attackable_syscall(struct task_struct *t)
 {
 	struct pt_regs *ptregs = task_pt_regs(t);
 	int sn = ptregs->orig_ax;
@@ -503,13 +507,14 @@ void sting_syscall_begin(void)
 	int lc = 0 /* last component? */, ctr = 0;
 	int err = 0, sh_err = 0;
 	struct sting st, *m;
-	struct path parent, child, marked;
-
+	struct path parent, child;
+	int is_ls = 0;
 	char *pfname = kzalloc(256, GFP_ATOMIC);
 
 	/* should sting be associated with this process (normal),
 	 * or parent (utility programs)? */
 	int sting_parent = 0;
+	int sn = syscall_get_nr(current, task_pt_regs(current));
 
 #if 0
 	if (t->cred->fsuid == 0)
@@ -523,10 +528,14 @@ void sting_syscall_begin(void)
 	if (!check_valid_user_context(t))
 		goto end;
 
+	/* calls going to avc_has_perm from here
+	 * should not be checked for vulnerability */
+	current->sting_request++;
+
 	/* check if nameres call */
 	fname = get_syscall_fname();
 	if (!fname)
-		goto end;
+		goto request;
 
 	#if 0
 	if (t->cred->fsuid == 0)
@@ -542,7 +551,7 @@ void sting_syscall_begin(void)
 	/* get entrypoint */
 	user_unwind(t);
 	if (!valid_user_stack(&t->user_stack))
-		goto end;  /* change to put if moving below! */
+		goto request;  /* change to put if moving below! */
 	user_interpreter_unwind(&t->user_stack);
 
 	/*
@@ -554,7 +563,7 @@ void sting_syscall_begin(void)
 
 	/* get adversary, scanning each binding */
 	shadow_res_init(AT_FDCWD, fname, 0, &nd);
-	t->sting_res_type = ADV_NORMAL_RES;
+	sting_set_res_type(current, ADV_NORMAL_RES);
 
 	while (nd.last_type == LAST_BIND || !lc) {
 		lc = shadow_res_advance_name(&fname, &ctr, &nd);
@@ -563,7 +572,7 @@ void sting_syscall_begin(void)
 			   not have updated nd->path */
 			sh_err = lc;
 			/* nothing to put */
-			goto end;
+			goto request;
 		}
 		if (lc != 2) {
 			/* not already resolved by follow_link */
@@ -584,9 +593,9 @@ void sting_syscall_begin(void)
 
 			shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
 
-			t->sting_res_type = NORMAL_RES;
+			sting_set_res_type(current, NORMAL_RES);
 			adv_uid_ind = sting_get_adversary(parent.dentry, child.dentry, ATTACKER_BIND);
-			t->sting_res_type = ADV_NORMAL_RES;
+			sting_set_res_type(current, ADV_NORMAL_RES);
 
 			shadow_res_put_pc_paths(&parent, &child, sh_err);
 
@@ -609,21 +618,36 @@ void sting_syscall_begin(void)
 
 	shadow_res_end(&nd);
 
-	/* determine unionfs branch visibility */
-	/* we should ideally fold this into the lookup itself */
-	if (sting_valid_adversary(adv_uid_ind)) {
-		/* possible adversarial interference - show adversarial
-		 * resource if one exists along path. */
-		t->sting_res_type = ADV_NORMAL_RES;
-	} else {
-		/* no adversarial interference - do not show adversarial
-		 * resource (and none should exist) */
-		t->sting_res_type = NORMAL_RES;
+	/*
+	 * directories have ls operation. to decide
+	 * whether to show adversarial branch, we have to
+	 * scan each of the files under that directory
+	 * to see if any has been created by an adversary.
+	 * for simplicitly, we simply show all branches
+	 * unconditionally.
+	 * thus, this will lead to some files possibly
+	 * being displayed that should not, or having
+	 * different types, but an ls -l will access
+	 * the actual dentry, and then it will
+	 * be revalidated to the proper branch.
+	 */
+
+	if (child.dentry && child.dentry->d_inode &&
+			S_ISDIR(child.dentry->d_inode->i_mode)) {
+		if (sn == __NR_openat || sn == __NR_open) {
+			is_ls = 1;
+			goto parent_put;
+		}
 	}
 
 	if (!is_attackable_syscall(t))
 		goto parent_put;
 
+	/* TODO: ignore open[at]() on directories, because they involve
+	 * deletion of directories that may upset the upper branch
+	 * hierarchy in unionfs. Real way to deal with this: fix the unionfs
+	 * bugs we have, or, mark all upper branch directories as attacker
+	 * marked. ls causes open[at]() on directories. */
 	/* get ept dictionary record, initializing a new one if needed */
 
 	task_fill_ept_key(&e.key, t);
@@ -719,13 +743,16 @@ void sting_syscall_begin(void)
 
 	/* get next attack */
 	ntest = sting_get_next_attack(r->val.attack_history);
+	/* HACK */
+	ntest = SYMLINK;
 	if (ntest == -1) {
 		/* all attacks tried */
 		goto parent_put;
 	}
 
 	err = sting_launch_attack(shadow_res_get_last_name(&nd, &child),
-			&parent, adv_uid_ind, ntest, &marked);
+			&parent, adv_uid_ind, ntest, &st);
+
 	if (err < 0)
 		goto parent_put;
 
@@ -733,12 +760,15 @@ void sting_syscall_begin(void)
 	get_task_comm(st.comm, t);
 	st.ino = ept_inode_get(&t->user_stack);
 	st.offset = ept_offset_get(&t->user_stack);
-	st.path = marked;
 	st.attack_type = ntest;
 	st.adv_uid_ind = adv_uid_ind;
 
 	sting_list_add(&st);
-	path_put(&marked);
+
+	/* sting_list_add got references, put ours */
+	path_put(&st.path);
+	if (st.target_path.dentry)
+		path_put(&st.target_path);
 
 parent_put:
 	shadow_res_put_pc_paths(&parent, &child, sh_err);
@@ -747,13 +777,38 @@ put:
 		STING_DBG("sting: resolution error: fname: %s [ %d ]\n", fname, sh_err);
 	if (!nd.path.dentry->d_count)
 		printk(KERN_INFO STING_MSG "d_count 0!\n");
-	shadow_res_put_lookup_path(&nd);
-end:
 	/* we have to hold reference to nd until the end */
+	shadow_res_put_lookup_path(&nd);
+request:
+	current->sting_request--;
+end:
 	if (pfname)
 		kfree(pfname);
 	if (fname)
 		putname(fname);
+	/* determine unionfs branch visibility for real resolution */
+	/* we should ideally fold this into the lookup itself */
+	if (sting_valid_adversary(adv_uid_ind)) {
+		/* possible adversarial interference - show adversarial
+		 * resource if one exists along path. */
+		sting_set_res_type(current, ADV_NORMAL_RES);
+	} else {
+		/* no adversarial interference - do not show adversarial
+		 * resource (and none should exist) */
+		sting_set_res_type(current, NORMAL_RES);
+	}
+
+	if (t->cred->fsuid == 1001) {
+		/* HACK */
+		sting_set_res_type(current, ADV_RES);
+	} else if (t->cred->fsuid == 1000) {
+		/* HACK */
+		sting_set_res_type(current, NORMAL_RES);
+	}
+
+	if (is_ls)
+		sting_set_res_type(current, ADV_NORMAL_RES);
+
 	return;
 }
 EXPORT_SYMBOL(sting_syscall_begin);
@@ -797,7 +852,7 @@ out:
 }
 EXPORT_SYMBOL(sting_process_exit);
 
-struct dentry *dname_from_auditdata(struct common_audit_data *a, char *path)
+struct dentry *dentry_from_auditdata(struct common_audit_data *a, char *path)
 {
     struct dentry *dentry = NULL;
     struct inode *inode = NULL;
@@ -848,7 +903,7 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 	if (!path)
 		return;
 
-	d = dname_from_auditdata(a, path);
+	d = dentry_from_auditdata(a, path);
 
 	if (d && sting_already_launched(d) &&
 			(in_set(sn, create_set) || in_set(sn, use_set))) {

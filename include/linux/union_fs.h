@@ -18,5 +18,22 @@
 # define UNIONFS_IOCTL_INCGEN		_IOR(0x15, 11, int)
 # define UNIONFS_IOCTL_QUERYFILE	_IOR(0x15, 15, int)
 
+/* kernel definitions */
+#ifdef __KERNEL__
+
+#include <linux/magic.h>
+
+static inline int is_unionfs(struct dentry *dentry)
+{
+	if (dentry->d_sb->s_magic == UNIONFS_SUPER_MAGIC)
+		return true;
+	return false;
+}
+
+struct dentry *unionfs_lower_dentry_idx_export(
+				const struct dentry *dent,
+				int index);
+#endif /* __KERNEL__ */
+
 #endif /* _LINUX_UNIONFS_H */
 
