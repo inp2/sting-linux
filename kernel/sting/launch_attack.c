@@ -1057,8 +1057,8 @@ int sting_launch_attack(char *source, struct path *parent,
 	}
 	#endif
 // out_eexist:
-	/* get changed path */
 
+	/* get changed path (we do it in caller itself) */
 	if (tret == 0) {
 		int r;
 		sting_set_res_type(current, ADV_NORMAL_RES);

@@ -267,6 +267,10 @@ void sting_list_add(struct sting *st)
 	}
 
 	st->path_ino = st->path.dentry->d_inode->i_ino; /* for ease of comparison */
+	if (st->target_path.dentry && st->target_path.dentry->d_inode)
+		st->target_path_ino = st->target_path.dentry->d_inode->i_ino;
+	else
+		st->target_path_ino = 0;
 
 	memcpy(news, st, sizeof(struct sting));
 	STING_LOG("added [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
@@ -278,10 +282,10 @@ void sting_list_add(struct sting *st)
 			uid_array[news->adv_uid_ind][0], current->cred->fsuid
 			);
 	down_write(&stings_rwlock);
-	path_get(&news->path);
+	// path_get(&news->path);
 	/* check if there is a target (may not be if it is a new file) */
-	if (news->target_path.dentry)
-		path_get(&news->target_path);
+	if (news->target_path.dentry);
+		// path_get(&news->target_path);
 	list_add_tail(&news->list, &sting_list.list);
 	up_write(&stings_rwlock);
 }
@@ -294,9 +298,9 @@ void sting_list_del(struct sting *st)
 			st->int_filename, st->int_lineno,
 			st->path.dentry->d_name.name,
 			uid_array[st->adv_uid_ind][0], current->cred->fsuid);
-	path_put(&st->path);
-	if (st->target_path.dentry)
-		path_put(&st->target_path);
+	// path_put(&st->path);
+	if (st->target_path.dentry);
+		// path_put(&st->target_path);
 	down_write(&stings_rwlock);
 	list_del(&st->list);
 	up_write(&stings_rwlock);
@@ -315,12 +319,12 @@ struct sting *sting_list_get(struct sting *st, int st_flags)
 				(strcmp(t->int_filename, st->int_filename)) ||
 				(t->int_lineno != st->int_lineno)))
 			continue;
-		if ((st_flags & MATCH_DENTRY) && (t->path.dentry != st->path.dentry))
+		if ((st_flags & MATCH_INO) && (!
+			((t->path_ino == st->path_ino) ||
+			(t->target_path_ino && (t->target_path_ino ==
+									st->path_ino)))
+			))
 			continue;
-		if ((st_flags & MATCH_INO) &&
-				(t->path.dentry->d_inode->i_ino != st->path_ino))
-			continue;
-
 
 		/* match */
 		up_read(&stings_rwlock);
@@ -492,6 +496,47 @@ char *get_dpath(struct path *path, char **pathname)
 	}
 	return p;
 }
+
+extern struct cred *superuser_creds(void);
+int sting_rollback(struct sting *st)
+{
+	int err = 0;
+	struct cred *old_cred;
+	struct path path;
+
+	int sn = syscall_get_nr(current, task_pt_regs(current));
+	int c_res_type;
+
+	c_res_type = sting_set_res_type(current, ADV_RES);
+
+	// STING_SYSCALL(tret = sys_unlink(st->pathname);
+	err = kern_path(st->pathname, 0, &path);
+	if (err < 0) {
+		STING_ERR(0, "Error getting dentry of launched attack: [%s]\n", st->pathname);
+		goto out;
+	}
+
+	if (!((sn == __NR_unlink || sn == __NR_rmdir))) {
+		/* remove adversary-controlled object */
+		/* set credentials to root */
+		old_cred = superuser_creds();
+		/* TODO: locking? */
+		current->sting_request++;
+		if (!S_ISDIR(path.dentry->d_inode->i_mode))
+			err = vfs_unlink(path.dentry->d_parent->d_inode, path.dentry);
+		else
+			err = vfs_rmdir(path.dentry->d_parent->d_inode, path.dentry);
+		current->sting_request--;
+		revert_creds(old_cred);
+		BUG_ON(current->cred != current->real_cred);
+	}
+
+	/* delete will delete by itself */
+out:
+	sting_set_res_type(current, c_res_type);
+	return err;
+}
+
 
 /*
  * this function:
@@ -705,7 +750,7 @@ void sting_syscall_begin(void)
 			 * entrypoint to same attack if adversary.
 			 * TODO: if not, mark as redirect to lower branch.  */
 			st.path = child;
-			m = sting_list_get(&st, MATCH_DENTRY);
+			m = sting_list_get(&st, MATCH_INO);
 			if (!m) {
 				printk(KERN_INFO STING_MSG
 						"no attack in list although marked: [%s]\n", fname);
@@ -737,7 +782,7 @@ void sting_syscall_begin(void)
 		/* when rolling back, make sure that the file is still labeled by attacker.
 		 * it might have been removed by the prog, we don't want to delete that.  */
 		/* delete only if the dentry refcount reaches 1 */
-		// sting_rollback(m->dentry);
+		sting_rollback(m);
 		STING_LOG("[%s:%lx] retry immunity\n", t->comm, m->offset);
 		sting_mark_immune(r, m->attack_type);
 		sting_list_del(m);
@@ -760,6 +805,10 @@ void sting_syscall_begin(void)
 	/* other fields already filled in */
 	st.attack_type = ntest;
 	st.adv_uid_ind = adv_uid_ind;
+	/* for exit immunity, we have to resolve these for rollback */
+	strcpy(st.pathname, get_dpath(&parent, &pfname));
+	strcat(st.pathname, "/");
+	strcat(st.pathname, get_last2(fname));
 
 	sting_list_add(&st);
 
@@ -835,8 +884,7 @@ void sting_process_exit(void)
 		}
 		/* when rolling back, make sure that the file is still labeled by attacker.
 		 * it might have been removed by the prog, we don't want to delete that.  */
-		/* delete only if the dentry refcount reaches 1 */
-		// sting_rollback(m->dentry);
+		sting_rollback(m);
 		STING_LOG("[%s:%lx] exit immunity\n", r->val.comm, m->offset);
 		sting_mark_immune(r, m->attack_type);
 		sting_list_del(m);
@@ -890,6 +938,7 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 	int sn = syscall_get_nr(current, task_pt_regs(current));
 	char *path = NULL;
 	struct dentry *d = NULL;
+	struct sting *m;
 
 	if (!check_valid_user_context(current))
 		return;
@@ -905,9 +954,20 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 
 	if (d && sting_already_launched(d) &&
 			(in_set(sn, create_set) || in_set(sn, use_set))) {
+		struct sting st;
 		STING_LOG("Vulnerable name resolution: process: [%s], file: [%s],"
 					"system call: [%d]\n",
 				current->comm, path, sn);
+		st.path_ino = d->d_inode->i_ino;
+		m = sting_list_get(&st, MATCH_INO);
+
+		if (!m) {
+			printk(KERN_INFO STING_MSG
+					"no attack in list although marked: [%s]\n", d->d_name.name);
+		} else {
+			sting_rollback(m);
+		}
+
 	}
 	if (d) {
         if (a->type == LSM_AUDIT_DATA_PATH ||

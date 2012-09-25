@@ -92,9 +92,10 @@ struct sting {
 	unsigned long int_lineno;
 
 	/* rollback info */
+	char pathname[512];
 	struct path path;
 	ino_t path_ino; /* path->d_inode.i_ino */
-	struct path target_path; /* for symbolic link attacks */
+	struct path target_path;
 	ino_t target_path_ino; /* target_path->d_inode.i_ino */
 
 	/* sting info */
@@ -104,7 +105,7 @@ struct sting {
 
 #define MATCH_PID 		0x1
 #define MATCH_EPT 		0x2
-#define MATCH_DENTRY 	0x4
+// #define MATCH_DENTRY 	0x4
 #define MATCH_INO		0x8
 
 // extern void sting_list_add(struct sting *st);
