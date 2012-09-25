@@ -411,6 +411,10 @@ int unionfs_file_revalidate(struct file *file, struct dentry *parent,
 	verify_locked(dentry);
 	verify_locked(parent);
 
+	/* sting: revalidation of dentries should be done in the
+	 * proper context */
+	current->sting_res_type = UNIONFS_F(file)->sting_res_type;
+
 	/*
 	 * First revalidate the dentry inside struct file,
 	 * but not unhashed dentries.
@@ -601,6 +605,7 @@ int unionfs_open(struct inode *inode, struct file *file)
 	bstart = fbstart(file) = dbstart(dentry);
 	bend = fbend(file) = dbend(dentry);
 
+	UNIONFS_F(file)->sting_res_type = current->sting_res_type;
 	/*
 	 * open all directories and make the unionfs file struct point to
 	 * these lower file structs
