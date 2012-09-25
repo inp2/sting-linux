@@ -121,7 +121,12 @@ struct dentry *unionfs_interpose(struct dentry *dentry, struct super_block *sb,
 		}
 	} else {
 		/* get unique inode number for unionfs */
-		inode = unionfs_iget(sb, iunique(sb, UNIONFS_ROOT_INO));
+		/* sting: we need consistent inode numbers. simply use the inode number
+		 * of the underlying filesystem.  this assumes inode numbers are unique
+		 * across _all_ filesystems, which may not be the case */
+		ino_t lower_ino = unionfs_lower_dentry(dentry)->d_inode->i_ino;
+		inode = unionfs_iget(sb, lower_ino); // iunique(sb, UNIONFS_ROOT_INO));
+
 		if (IS_ERR(inode)) {
 			err = PTR_ERR(inode);
 			goto out;
