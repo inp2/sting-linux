@@ -323,10 +323,12 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	namelen = dentry->d_name.len;
 
 	/* No dentries should get created for possible whiteout names. */
+#if 0
 	if (!is_validname(name)) {
 		err = -EPERM;
 		goto out_free;
 	}
+#endif
 
 	/* Now start the actual lookup procedure. */
 
@@ -571,6 +573,13 @@ out:
 		BUG_ON(dbstart(d_interposed) >= 0 && dbend(d_interposed) < 0);
 	}
 
+#if 0
+	if (dbstart(dentry) == dbend(dentry) == -1) {
+		/* sting: switching to unavailable branch */
+		UNIONFS_D(dentry)->lower_paths = NULL;
+		return ERR_PTR(-ESTALE);
+	}
+#endif
 	if (!err && d_interposed)
 		return d_interposed;
 	return ERR_PTR(err);

@@ -231,10 +231,17 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 
 	if ((tdbstart(parent) > sdbstart()) || tdbend(parent) < sdbend()) {
 		struct dentry *gparent;
+		int valid = true;
 		gparent = unionfs_lock_parent(parent, UNIONFS_DMUTEX_PARENT);
-		err = unionfs_d_revalidate_recursive(parent, gparent);
+		valid = unionfs_d_revalidate_recursive(parent, gparent);
+		/* sting: even after revalidation, if our
+		 * parent does not
+		 * have our branch, we are invalid */
+		if (!parent->d_inode ||
+				ibstart(parent->d_inode) == -1)
+			valid = false;
 		unionfs_unlock_parent(parent, gparent);
-		if (!err) {
+		if (!valid) {
 			ret = ERR_PTR(-ESTALE);
 			goto out;
 		}

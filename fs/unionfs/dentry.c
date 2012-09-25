@@ -195,6 +195,7 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 		iput_lowers_all(dentry->d_inode, true);
 	}
 
+// sting: iput(inode);
 	if (realloc_dentry_private_data(dentry) != 0) {
 		valid = false;
 		goto out;
@@ -216,6 +217,14 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 
 	if (unlikely(positive && is_negative_lower(dentry))) {
 		/* call make_bad_inode here ? */
+		/* sting: a child may still be having a
+		 * reference to us.  let child know to
+		 * revalidate us (when needed in
+		 * recursive revalidate) */
+		tdbstart(dentry) = tdbend(dentry) =
+			dbstart(dentry) = dbend(dentry) = -1;
+		// iput(dentry->d_inode);
+		make_bad_inode(dentry->d_inode);
 		d_drop(dentry);
 		valid = false;
 		goto out;
@@ -385,6 +394,15 @@ int unionfs_d_revalidate_recursive(struct dentry *dentry,
 		/* parent needs to be revalidated, lock grandparent */
 		gparent = unionfs_lock_parent(parent, UNIONFS_DMUTEX_PARENT);
 		valid = unionfs_d_revalidate_recursive(parent, gparent);
+		/* sting: even after revalidation, if our
+		 * parent does not
+		 * have our branch, we are invalid */
+		if (!parent->d_inode ||
+				ibstart(parent->d_inode) == -1) {
+			/* lookup returns -ESTALE when this
+			 * dentry is looked up */
+			valid = false;
+		}
 		unionfs_unlock_parent(parent, gparent);
 	}
 
@@ -392,8 +410,10 @@ validate_ourselves:
 	if (valid)
 		valid = __unionfs_d_revalidate(dentry, parent, false);
 	if (valid) {
-		unionfs_postcopyup_setmnt(dentry);
-		unionfs_check_dentry(dentry);
+ 		if (!d_deleted(dentry)) {
+			unionfs_postcopyup_setmnt(dentry);
+			unionfs_check_dentry(dentry);
+		}
 	} else {
 		d_drop(dentry);
 		err = valid;
@@ -430,8 +450,10 @@ static int unionfs_d_revalidate(struct dentry *dentry,
 	if (valid)
 		valid = __unionfs_d_revalidate(dentry, parent, false);
 	if (valid) {
-		unionfs_postcopyup_setmnt(dentry);
-		unionfs_check_dentry(dentry);
+ 		if (!d_deleted(dentry)) {
+			unionfs_postcopyup_setmnt(dentry);
+			unionfs_check_dentry(dentry);
+		}
 	} else {
 		d_drop(dentry);
 		err = valid;
