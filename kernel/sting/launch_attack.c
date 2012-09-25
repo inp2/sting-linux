@@ -1061,6 +1061,7 @@ int sting_launch_attack(char *source, struct path *parent,
 
 	if (tret == 0) {
 		int r;
+		sting_set_res_type(current, ADV_NORMAL_RES);
 		/* get reference to launched attack's dentry */
 		/* TODO: reduce the number of name resolutions by using vfs directly
 		 * and filling in the following inside symlink/hardlink/file create */
@@ -1072,7 +1073,8 @@ int sting_launch_attack(char *source, struct path *parent,
 		}
 
 		if (attack_type & (SYMLINK | HARDLINK)) {
-			kern_path(target, 0, &sting->target_path);
+			sting->target_path.dentry = sting->target_path.mnt = NULL;
+			r = kern_path(target, 0, &sting->target_path);
 			if (r < 0 && r != -ENOENT) {
 				STING_ERR(0, "Error getting dentry of launched attack's target: [%s]\n", source);
 				tret = r;

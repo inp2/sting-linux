@@ -279,6 +279,7 @@ void sting_list_add(struct sting *st)
 			);
 	down_write(&stings_rwlock);
 	path_get(&news->path);
+	/* check if there is a target (may not be if it is a new file) */
 	if (news->target_path.dentry)
 		path_get(&news->target_path);
 	list_add_tail(&news->list, &sting_list.list);
@@ -344,6 +345,8 @@ void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 	 * if child itself is not an interpreter */
 	if (int_ept_exists(&t->user_stack))
 		strcpy(st->int_filename, int_ept_filename_get(&t->user_stack));
+	else
+		st->int_filename[0] = 0;
 	st->int_lineno = int_ept_lineno_get(&t->user_stack);
 }
 
@@ -686,7 +689,7 @@ void sting_syscall_begin(void)
 
 	// goto parent_put;
 	/* TODO: parent interpreter exits */
-	if (is_interpreter(t->parent) && !is_interpreter(t))
+	if (int_ept_exists(&t->user_stack)) // is_interpreter(t->parent) && !is_interpreter(t))
 		sting_parent = 1;
 
 	/* check if dentry has been used for another test case */
@@ -743,8 +746,6 @@ void sting_syscall_begin(void)
 
 	/* get next attack */
 	ntest = sting_get_next_attack(r->val.attack_history);
-	/* HACK */
-	ntest = SYMLINK;
 	if (ntest == -1) {
 		/* all attacks tried */
 		goto parent_put;
@@ -756,10 +757,7 @@ void sting_syscall_begin(void)
 	if (err < 0)
 		goto parent_put;
 
-	st.pid = t->pid;
-	get_task_comm(st.comm, t);
-	st.ino = ept_inode_get(&t->user_stack);
-	st.offset = ept_offset_get(&t->user_stack);
+	/* other fields already filled in */
 	st.attack_type = ntest;
 	st.adv_uid_ind = adv_uid_ind;
 
