@@ -217,12 +217,17 @@ static inline int in_spcs_use_set(struct pt_regs *ptregs)
 {
 	int sn = ptregs->orig_ax;
 
-	if (((sn == __NR_open) && (!(((int) ptregs->cx) & O_CREAT))) ||
-		((sn == __NR_openat) && (!(((int) ptregs->dx) & O_CREAT))) ||
-		connect_call(sn))
-		return 1;
+	if (sn == __NR_open) {
+		if (((int) ptregs->cx) & (O_CREAT)) // | O_DIRECTORY))
+			return 0;
+	} else if (sn == __NR_openat) {
+		if (((int) ptregs->dx) & (O_CREAT)) // | O_DIRECTORY))
+			return 0;
+	} else if (!connect_call(sn)) {
+		return 0;
+	}
 
-	return 0;
+	return 1;
 }
 
 static inline int in_spcs_nosym_set(struct pt_regs *ptregs)

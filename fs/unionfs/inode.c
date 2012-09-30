@@ -208,6 +208,94 @@ out:
 	return err;
 }
 
+/* when we enter this function, superblock is read-locked. allocate
+ * and return a new dentry which only has the branches we want.
+ * return our dentry unionfs-locked. */
+static struct dentry *unionfs_lookup_parent_chain(struct dentry *dentry)
+{
+	struct dentry *ret = NULL, *parent;
+	int err = 0;
+	struct dentry *new_parent = NULL, *new_dentry = NULL;
+	struct qstr name;
+
+	// unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
+	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
+
+	/* if our parent does not have required branches, we have to revalidate the
+	 * parent and its parent and so on, until we get to a point that has what
+	 * we need. we got into this position because we changed the branch
+	 * visible, and the branch we need is not available in the parent directory,
+	 * because it itself was resolved in the different context, and so on.  */
+
+	if ((tdbstart(parent) > sdbstart()) || (tdbend(parent) < sdbend())) {
+		unionfs_unlock_parent(dentry, parent);
+		new_parent = unionfs_lookup_parent_chain(parent);
+		if (IS_ERR(new_parent)) {
+			err = -ESTALE;
+			goto out_unlocked;
+		}
+		/* sting: even after re-lookup, if our new parent does not
+		 * have our branch, we should not proceed. it is as if
+		 * someone deleted our parent. */
+		if ((!new_parent->d_inode) || (ibstart(new_parent->d_inode) == -1)) {
+			d_drop(new_parent);
+			dput(new_parent);
+			err = -ESTALE;
+			goto out;
+		}
+	}
+
+	if (new_parent)
+		parent = new_parent;
+
+	d_drop(dentry); /* our old dentry no longer valid */
+	new_dentry = d_alloc(parent, &dentry->d_name);
+	if (unlikely(!new_dentry)) {
+		err = -ENOMEM;
+		goto out;
+	}
+	// dput(dentry); /* XXX: should we set parent for old dentry as well? */
+
+	dentry = new_dentry;
+
+	/*
+	 * As long as we lock/dget the parent, then can skip validating the
+	 * parent now; we may have to rebuild this dentry on the next
+	 * ->d_revalidate, however.
+	 */
+
+	/* allocate dentry private data.  We free it in ->d_release */
+	err = new_dentry_private_data(dentry, UNIONFS_DMUTEX_CHILD);
+	if (unlikely(err))
+		goto out;
+
+	ret = unionfs_lookup_full(dentry, parent, INTERPOSE_LOOKUP);
+
+	if (!IS_ERR(ret)) {
+		if (ret)
+			dentry = ret;
+		/* lookup_full can return multiple positive dentries */
+		if (dentry->d_inode && !S_ISDIR(dentry->d_inode->i_mode)) {
+			BUG_ON(dbstart(dentry) < 0);
+			unionfs_postcopyup_release(dentry);
+		}
+		unionfs_copy_attr_times(dentry->d_inode);
+	}
+
+	unionfs_check_inode(parent->d_inode);
+	if (!IS_ERR(ret))
+		unionfs_check_dentry(dentry);
+	unionfs_check_dentry(parent);
+	// unionfs_unlock_dentry(dentry); /* locked in new_dentry_private data */
+
+out:
+	unionfs_unlock_parent(dentry, parent);
+out_unlocked:
+	// unionfs_read_unlock(dentry->d_sb);
+
+	return (err < 0) ? ERR_PTR(err) : (ret ? ret : dentry);
+}
+
 /*
  * unionfs_lookup is the only special function which takes a dentry, yet we
  * do NOT want to call __unionfs_d_revalidate_chain because by definition,
@@ -217,7 +305,7 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 				     struct dentry *dentry,
 				     struct nameidata *nd_unused)
 {
-	struct dentry *ret, *parent;
+	struct dentry *ret = NULL, *parent, *new_parent = NULL;
 	int err = 0;
 
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
@@ -229,23 +317,26 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 	 * visible, and the branch we need is not available in the parent directory,
 	 * because it itself was resolved in the different context, and so on.  */
 
-	if ((tdbstart(parent) > sdbstart()) || tdbend(parent) < sdbend()) {
-		struct dentry *gparent;
-		int valid = true;
-		gparent = unionfs_lock_parent(parent, UNIONFS_DMUTEX_PARENT);
-		valid = unionfs_d_revalidate_recursive(parent, gparent);
-		/* sting: even after revalidation, if our
-		 * parent does not
-		 * have our branch, we are invalid */
-		if (!parent->d_inode ||
-				ibstart(parent->d_inode) == -1)
-			valid = false;
-		unionfs_unlock_parent(parent, gparent);
-		if (!valid) {
-			ret = ERR_PTR(-ESTALE);
+	if ((tdbstart(parent) > sdbstart()) || (tdbend(parent) < sdbend())) {
+		unionfs_unlock_parent(dentry, parent);
+		new_parent = unionfs_lookup_parent_chain(parent);
+		if (IS_ERR(new_parent)) {
+			err = -ESTALE;
+			goto out_unlocked;
+		}
+		/* sting: even after re-lookup, if our new parent does not
+		 * have our branch, we should not proceed. it is as if
+		 * someone deleted our parent. */
+		if ((!new_parent->d_inode) || (ibstart(new_parent->d_inode) == -1)) {
+			d_drop(new_parent);
+			dput(new_parent);
+			err = -ESTALE;
 			goto out;
 		}
 	}
+
+	if (new_parent)
+		parent = new_parent;
 
 	/*
 	 * As long as we lock/dget the parent, then can skip validating the
@@ -255,10 +346,8 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 
 	/* allocate dentry private data.  We free it in ->d_release */
 	err = new_dentry_private_data(dentry, UNIONFS_DMUTEX_CHILD);
-	if (unlikely(err)) {
-		ret = ERR_PTR(err);
+	if (unlikely(err))
 		goto out;
-	}
 
 	ret = unionfs_lookup_full(dentry, parent, INTERPOSE_LOOKUP);
 
@@ -281,9 +370,10 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 
 out:
 	unionfs_unlock_parent(dentry, parent);
+out_unlocked:
 	unionfs_read_unlock(dentry->d_sb);
 
-	return ret;
+	return (err < 0) ? ERR_PTR(err) : ret;
 }
 
 static int unionfs_link(struct dentry *old_dentry, struct inode *dir,

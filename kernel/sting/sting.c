@@ -680,6 +680,7 @@ void sting_syscall_begin(void)
 	 * be revalidated to the proper branch.
 	 */
 
+#if 0
 	if (child.dentry && child.dentry->d_inode &&
 			S_ISDIR(child.dentry->d_inode->i_mode)) {
 		if (sn == __NR_openat || sn == __NR_open) {
@@ -687,7 +688,7 @@ void sting_syscall_begin(void)
 			goto parent_put;
 		}
 	}
-
+#endif
 	if (!is_attackable_syscall(t))
 		goto parent_put;
 
@@ -853,8 +854,8 @@ end:
 		sting_set_res_type(current, NORMAL_RES);
 	}
 
-	if (is_ls)
-		sting_set_res_type(current, ADV_NORMAL_RES);
+//	if (is_ls)
+//		sting_set_res_type(current, ADV_NORMAL_RES);
 
 	return;
 }
@@ -965,7 +966,8 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			printk(KERN_INFO STING_MSG
 					"no attack in list although marked: [%s]\n", d->d_name.name);
 		} else {
-			sting_rollback(m);
+			/* HACK */
+			// sting_rollback(m);
 		}
 
 	}

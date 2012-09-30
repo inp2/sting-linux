@@ -333,8 +333,10 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	/* Now start the actual lookup procedure. */
 
 	/* get the branches we have to lookup for sting */
-	tdbstart(dentry) = bstart = sting_res_branch_start(dbstart(parent));
-	tdbend(dentry) = bend = sting_res_branch_end(dbend(parent));
+	tdbstart(dentry) = sdbstart();
+	tdbend(dentry) = sdbend();
+	bstart = sting_res_branch_start(ibstart(parent->d_inode));
+	bend = sting_res_branch_end(ibend(parent->d_inode));
 
 //	bopaque = (nd->flags & LOOKUP_LAST) ?
 //				sting_res_branch_start(dbopaque(parent)) : dbopaque(parent);
