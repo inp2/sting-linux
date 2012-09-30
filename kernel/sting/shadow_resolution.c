@@ -311,6 +311,8 @@ int shadow_res_resolve_name(struct nameidata *nd, char *name)
 	 * the previous (parent) */
 	if (err == -ENOENT)
 		nd->path = prev;
+	else if (nd->last_type == LAST_DOT)
+		/* no additional reference obtained in walk_component if LAST_DOT */;
 	else
 		path_put(&prev);
 
