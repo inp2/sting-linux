@@ -49,9 +49,6 @@
 #define ATTACK_NEW_FILE_PREFIX "/new_file"
 #define ATTACK_EXISTING_DIR_PREFIX "/existing_dir"
 
-#define TYPE_HARDLINK 0x1
-#define TYPE_SYMLINK 0x2
-
 /*
  * STING: routines associated with attacks.
  * to launch actual attacks, we use *at() family of system calls,
@@ -79,7 +76,7 @@ char *get_last(char *filename)
  * @uid:
  * @filename:
  * @fname: allocated pointer
- * @type: %TYPE_SYMLINK/HARDLINK
+ * @type: %SYMLINK/HARDLINK
  */
 
 char *get_existing_target_file(char *filename, char *fname, uid_t uid)// , int type)
@@ -90,7 +87,7 @@ char *get_existing_target_file(char *filename, char *fname, uid_t uid)// , int t
 	strcat(fname, uid_str);
 	strcat(fname, ATTACK_EXISTING_FILE_PREFIX);
 	strcat(fname, "_");
-	// strcat(fname, (type == TYPE_SYMLINK) ? SYMLINK_FILE_INFIX : HARDLINK_FILE_INFIX);
+	// strcat(fname, (type == SYMLINK) ? SYMLINK_FILE_INFIX : HARDLINK_FILE_INFIX);
 	// strcat(fname, "_");
 	strcat(fname, get_last(filename));
 

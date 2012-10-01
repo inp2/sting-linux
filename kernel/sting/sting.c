@@ -282,10 +282,10 @@ void sting_list_add(struct sting *st)
 			uid_array[news->adv_uid_ind][0], current->cred->fsuid
 			);
 	down_write(&stings_rwlock);
-	// path_get(&news->path);
+	path_get(&news->path);
 	/* check if there is a target (may not be if it is a new file) */
 	if (news->target_path.dentry);
-		// path_get(&news->target_path);
+		path_get(&news->target_path);
 	list_add_tail(&news->list, &sting_list.list);
 	up_write(&stings_rwlock);
 }
@@ -298,9 +298,9 @@ void sting_list_del(struct sting *st)
 			st->int_filename, st->int_lineno,
 			st->path.dentry->d_name.name,
 			uid_array[st->adv_uid_ind][0], current->cred->fsuid);
-	// path_put(&st->path);
+	path_put(&st->path);
 	if (st->target_path.dentry);
-		// path_put(&st->target_path);
+		path_put(&st->target_path);
 	down_write(&stings_rwlock);
 	list_del(&st->list);
 	up_write(&stings_rwlock);
@@ -439,15 +439,14 @@ fail:
 void sting_mark_immune(struct ept_dict_entry *e, int attack_type)
 {
 	e->val.attack_history |= attack_type << 8;
-	e->val.attack_history &= ~(attack_type);
-	STING_LOG("marked immune [%s:%lx]\n",
-			current->comm, e->key.offset);
+	/* nothing to do; by default, immune */
+	// e->val.attack_history &= ~(attack_type);
 }
 
-void sting_mark_vulnerable(struct ept_dict_val *v, int attack_type)
+void sting_mark_vulnerable(struct ept_dict_entry *e, int attack_type)
 {
-	v->attack_history |= attack_type << 8;
-	v->attack_history |= attack_type;
+	e->val.attack_history |= attack_type << 8;
+	e->val.attack_history |= attack_type;
 }
 
 int is_attackable_syscall(struct task_struct *t)
@@ -470,6 +469,19 @@ static inline void task_fill_ept_key(struct ept_dict_key *k, struct task_struct 
 	if (t->user_stack.int_trace.nr_entries > 0) {
 		strcpy(k->int_filename, int_ept_filename_get(&t->user_stack));
 		k->int_lineno = int_ept_lineno_get(&t->user_stack);
+	} else {
+		k->int_filename[0] = 0;
+		k->int_lineno = 0;
+	}
+}
+
+static inline void sting_fill_ept_key(struct ept_dict_key *k, struct sting *st)
+{
+	k->ino = st->ino;
+	k->offset = st->offset;
+	if (st->int_lineno > 0) {
+		strcpy(k->int_filename, st->int_filename);
+		k->int_lineno = st->int_lineno;
 	} else {
 		k->int_filename[0] = 0;
 		k->int_lineno = 0;
@@ -503,20 +515,26 @@ int sting_rollback(struct sting *st)
 	int err = 0;
 	struct cred *old_cred;
 	struct path path;
+	struct sting *m;
 
 	int sn = syscall_get_nr(current, task_pt_regs(current));
 	int c_res_type;
 
+	m = sting_list_get(st, MATCH_INO);
+	if (m) {
+		/* there exists a pending sting with the same inode number.
+		   do not rollback. */
+		return 0;
+	}
 	c_res_type = sting_set_res_type(current, ADV_RES);
 
-	// STING_SYSCALL(tret = sys_unlink(st->pathname);
 	err = kern_path(st->pathname, 0, &path);
 	if (err < 0) {
 		STING_ERR(0, "Error getting dentry of launched attack: [%s]\n", st->pathname);
 		goto out;
 	}
 
-	if (!((sn == __NR_unlink || sn == __NR_rmdir))) {
+	if (!in_set(sn, delete_set)) {
 		/* remove adversary-controlled object */
 		/* set credentials to root */
 		old_cred = superuser_creds();
@@ -593,21 +611,6 @@ void sting_syscall_begin(void)
 
 	t->sting_res_type = NA_RES;
 	#endif
-
-	/* XXX: below flow logs every entrypoint, not just adversary-accessible
-	   ones. rearrange if performance is needed */
-	/* get entrypoint */
-	user_unwind(t);
-	if (!valid_user_stack(&t->user_stack))
-		goto request;  /* change to put if moving below! */
-	user_interpreter_unwind(&t->user_stack);
-
-	/*
-	if (up_find(EPT_INO(t))) {
-		sting_parent = 1;
-		printk(KERN_INFO STING_MSG "[%s]: up found!\n", current->comm);
-	}
-	*/
 
 	/* get adversary, scanning each binding */
 	shadow_res_init(AT_FDCWD, fname, 0, &nd);
@@ -692,6 +695,15 @@ void sting_syscall_begin(void)
 	if (!is_attackable_syscall(t))
 		goto parent_put;
 
+	if (!sting_valid_adversary(adv_uid_ind))
+		goto parent_put;
+
+	/* get entrypoint */
+	user_unwind(t);
+	if (!valid_user_stack(&t->user_stack))
+		goto parent_put;  /* change to put if moving below! */
+	user_interpreter_unwind(&t->user_stack);
+
 	/* TODO: ignore open[at]() on directories, because they involve
 	 * deletion of directories that may upset the upper branch
 	 * hierarchy in unionfs. Real way to deal with this: fix the unionfs
@@ -726,19 +738,13 @@ void sting_syscall_begin(void)
 	 * they have to be tested anyway if the parent shell's entrypoint
 	 * is not immune, as what matters is the context within the script */
 
-	if (!sting_valid_adversary(adv_uid_ind)) {
-		/* exit - raise this check above if performance needed */
-		goto parent_put;
-	}
-
 	STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
 
-	// goto parent_put;
 	/* TODO: parent interpreter exits */
 	if (int_ept_exists(&t->user_stack)) // is_interpreter(t->parent) && !is_interpreter(t))
 		sting_parent = 1;
 
-	/* check if dentry has been used for another test case */
+	/* check if inode has been used for another test case */
 	if (child.dentry != NULL) {
 		err = sting_already_launched(child.dentry);
 		if (err < 0)
@@ -753,19 +759,17 @@ void sting_syscall_begin(void)
 			st.path = child;
 			m = sting_list_get(&st, MATCH_INO);
 			if (!m) {
-				printk(KERN_INFO STING_MSG
-						"no attack in list although marked: [%s]\n", fname);
+				STING_ERR(1, "no attack in list although marked: [%s]\n", fname);
 				goto parent_put;
 			}
 			/* if the attack was launched elsewhere, it means a new
 			 * cross-entrypoint path is exercised, so it does not matter if
 			 * we are immune to the same attack type _launched_ at our ept */
 			if (r && sting_attack_checked(r->val.attack_history, m->attack_type)) {
-				printk(KERN_INFO STING_MSG "new adversarial path\n");
+				STING_DBG("new adversarial path\n");
 			}
 			if (!sting_adversary(uid_array[m->adv_uid_ind][0], t->cred->fsuid)) {
-				printk(KERN_INFO STING_MSG
-						"another non-adversarial attack ongoing: [%s]\n", fname);
+				STING_DBG("another non-adversarial attack ongoing: [%s]\n", fname);
 				goto parent_put;
 			}
 
@@ -780,13 +784,12 @@ void sting_syscall_begin(void)
 	task_fill_sting(&st, t, sting_parent);
 	m = sting_list_get(&st, MATCH_PID | MATCH_EPT);
 	if (m) {
-		/* when rolling back, make sure that the file is still labeled by attacker.
-		 * it might have been removed by the prog, we don't want to delete that.  */
-		/* delete only if the dentry refcount reaches 1 */
-		sting_rollback(m);
-		STING_LOG("[%s:%lx] retry immunity\n", t->comm, m->offset);
+		STING_LOG_STING_DETAILS(m, "retry immunity");
 		sting_mark_immune(r, m->attack_type);
+		memcpy(&st, m, sizeof(struct sting));
 		sting_list_del(m);
+		/* after sting_list_del so we will not find ourselves on the list. */
+		sting_rollback(&st);
 		goto parent_put;
 	}
 
@@ -806,7 +809,7 @@ void sting_syscall_begin(void)
 	/* other fields already filled in */
 	st.attack_type = ntest;
 	st.adv_uid_ind = adv_uid_ind;
-	/* for exit immunity, we have to resolve these for rollback */
+	st.victim_uid = t->cred->fsuid;
 	strcpy(st.pathname, get_dpath(&parent, &pfname));
 	strcat(st.pathname, "/");
 	strcat(st.pathname, get_last2(fname));
@@ -863,38 +866,45 @@ EXPORT_SYMBOL(sting_syscall_begin);
 
 void sting_process_exit(void)
 {
-	/* mark pending sting entrypoints as immune */
-	struct sting st, *m = NULL;
+	struct sting st, *m = NULL, *p = NULL;
 	struct ept_dict_entry e, *r;
+	struct sting *st_cp; /* copy of sting */
+	int i = 0;
 
 	if (!check_valid_user_context(current))
 		return;
 
 	st.pid = current->pid;
+	st_cp = kmem_cache_alloc(sting_cachep, GFP_KERNEL);
+	if (!st_cp)
+		return;
 
-	m = sting_list_get(&st, MATCH_PID);
-	while (m) {
-		e.key.ino = m->ino;
-		e.key.offset = m->offset;
-
-		r = ept_dict_lookup(&e.key);
-		if (!r) {
-			printk(KERN_INFO STING_MSG "pending sting [%lx:%lx] not in ept_dict!\n",
-					e.key.ino, e.key.offset);
-			goto out;
-		}
-		/* when rolling back, make sure that the file is still labeled by attacker.
-		 * it might have been removed by the prog, we don't want to delete that.  */
-		sting_rollback(m);
-		STING_LOG("[%s:%lx] exit immunity\n", r->val.comm, m->offset);
-		sting_mark_immune(r, m->attack_type);
-		sting_list_del(m);
-
-		/* get next sting */
+	/* find and delete all corresponding stings and mark immune */
+	while (1) {
 		m = sting_list_get(&st, MATCH_PID);
+		if (!m) {
+			if (!i)
+				STING_ERR(1, "no attack in list although marked\n");
+			break;
+		}
+		if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
+			STING_DBG("another non-adversarial attack ongoing: [%s]\n", m->pathname);
+			continue;
+		}
+
+		/* delete sting from list */
+		STING_LOG_STING_DETAILS(m, "exit immunity");
+		sting_fill_ept_key(&e.key, m);
+		r = ept_dict_lookup(&e.key);
+		sting_mark_immune(r, m->attack_type);
+		memcpy(st_cp, m, sizeof(struct sting));
+		sting_list_del(m);
+		/* after sting_list_del so we will not find ourselves on the list. */
+		sting_rollback(st_cp);
+		i++;
 	}
 
-out:
+	kmem_cache_free(sting_cachep, st_cp);
 	return;
 }
 EXPORT_SYMBOL(sting_process_exit);
@@ -939,12 +949,19 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 	int sn = syscall_get_nr(current, task_pt_regs(current));
 	char *path = NULL;
 	struct dentry *d = NULL;
-	struct sting *m;
+	struct sting *m, *p = NULL;
+	struct ept_dict_entry e, *r;
+	int i = 0;
+	struct sting *st_cp; /* copy of sting */
 
 	if (!check_valid_user_context(current))
 		return;
 
 	if (!a)
+		return;
+
+	st_cp = kmem_cache_alloc(sting_cachep, GFP_KERNEL);
+	if (!st_cp)
 		return;
 
 	path = __getname_gfp(GFP_ATOMIC);
@@ -954,23 +971,44 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 	d = dentry_from_auditdata(a, path);
 
 	if (d && sting_already_launched(d) &&
-			(in_set(sn, create_set) || in_set(sn, use_set))) {
+			(in_set(sn, create_set) || in_set(sn, use_set) ||
+			in_set(sn, delete_set))) {
 		struct sting st;
-		STING_LOG("Vulnerable name resolution: process: [%s], file: [%s],"
-					"system call: [%d]\n",
-				current->comm, path, sn);
 		st.path_ino = d->d_inode->i_ino;
-		m = sting_list_get(&st, MATCH_INO);
+		st.pid = current->pid;
+		/* find and delete all corresponding stings and mark vulnerable */
+		while (1) {
+			m = sting_list_get(&st, MATCH_INO | MATCH_PID);
+			if (!m) {
+				if (!i)
+					STING_ERR(1, "no attack in list although marked: [%s]\n", d->d_name.name);
+				break;
+			}
+			if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
+				STING_DBG("another non-adversarial attack ongoing: [%s]\n", d->d_name.name);
+				goto done;
+			}
 
-		if (!m) {
-			printk(KERN_INFO STING_MSG
-					"no attack in list although marked: [%s]\n", d->d_name.name);
-		} else {
-			/* HACK */
-			// sting_rollback(m);
+			/* delete sting from list */
+			if (in_set(sn, delete_set)) {
+				STING_LOG_STING_DETAILS(m, "delete immunity");
+			} else {
+				STING_LOG_STING_DETAILS(m, "vulnerable name resolution");
+			}
+			sting_fill_ept_key(&e.key, m);
+			r = ept_dict_lookup(&e.key);
+			if (in_set(sn, delete_set))
+				sting_mark_immune(r, m->attack_type);
+			else
+				sting_mark_vulnerable(r, m->attack_type);
+			memcpy(st_cp, m, sizeof(struct sting));
+			sting_list_del(m);
+			/* after sting_list_del so we will not find ourselves on the list. */
+			sting_rollback(st_cp);
+			i++;
 		}
-
 	}
+done:
 	if (d) {
         if (a->type == LSM_AUDIT_DATA_PATH ||
             a->type == LSM_AUDIT_DATA_INODE)
@@ -978,5 +1016,6 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 	}
 
 	__putname(path);
+	kmem_cache_free(sting_cachep, st_cp);
 }
 EXPORT_SYMBOL(sting_log_vulnerable_access);

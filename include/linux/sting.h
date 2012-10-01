@@ -61,12 +61,20 @@ extern struct rchan *sting_log_rchan;
 	log_str = kasprintf(GFP_ATOMIC, "[%s:%d]: " str, __FILE__, __LINE__, ##__VA_ARGS__); \
 	if (log_str) { \
 		current->sting_request++; \
-		relay_write(sting_log_rchan, log_str, strlen(log_str) + 1); \
+		relay_write(sting_log_rchan, log_str, strlen(log_str)); \
 		current->sting_request--; \
 		kfree(log_str); \
 	} \
 }
 
+#define STING_LOG_STING_DETAILS(m, str) { \
+	STING_LOG(str ": entrypoint: [%s:%lx:%s,%lu], resource: [%s], system call: [%d]" \
+		"attack_type: [%s], adversary uid: [%d], victim uid: [%d]\n", \
+		m->comm, m->offset, (m->int_filename ? m->int_filename : "(null)"), \
+		m->int_lineno, m->pathname, syscall_get_nr(current, task_pt_regs(current)), \
+		sting_attack_to_str(m->attack_type), uid_array[m->adv_uid_ind][0], \
+		m->victim_uid); \
+}
 
 #define STING_LOG_ALLOCED(s) { \
 	if (s) { \
@@ -100,6 +108,7 @@ struct sting {
 
 	/* sting info */
 	int attack_type;
+	uid_t victim_uid;
 	int adv_uid_ind; /* TODO: mac */
 };
 

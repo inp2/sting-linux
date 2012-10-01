@@ -16,6 +16,18 @@
 #define ATTACKER_XATTR_STRING ATTACKER_XATTR_PREFIX ATTACKER_XATTR_SUFFIX
 #define ATTACKER_XATTR_VALUE "1"
 
+static inline char *sting_attack_to_str(int attack_type)
+{
+	if (attack_type == SYMLINK)
+		return "symlink";
+	else if (attack_type == HARDLINK)
+		return "hardlink";
+	else if (attack_type == SQUAT)
+		return "squat";
+	else
+		return "invalid";
+}
+
 int sting_launch_attack(char *fname, struct path *parent,
 		int a_ind, int attack_type, struct sting *st);
 // int check_already_attacked(char __user *filename, int follow);

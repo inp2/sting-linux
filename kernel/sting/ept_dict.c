@@ -15,7 +15,7 @@
 
 /*
  *	file /sys/kernel/debug/ept_dict to get stats of
- *	entrypoint dictionary, and to load and read it. 
+ *	entrypoint dictionary, and to load and read it.
  */
 
 static ssize_t
@@ -26,21 +26,21 @@ ept_dict_read(struct file *file, char __user *ubuf,
 	char *s;
 
 	if (*ppos != 0)
-		return 0; 
+		return 0;
 
 	ept_dict_entries(&na, &nt);
 
 	s = kasprintf(GFP_KERNEL, "Adv access/total = [%d/%d]\n"
 			"See %s for full dictionary\n", na, nt, STING_LOG_FILE);
 	if (s) {
-	    n = simple_read_from_buffer(ubuf, count, ppos, s, 
+	    n = simple_read_from_buffer(ubuf, count, ppos, s,
 				strlen(s) + 1);
-		kfree(s); 
+		kfree(s);
 	} else {
-		n = -ENOMEM; 
+		n = -ENOMEM;
 	}
-	
-	return n; 
+
+	return n;
 }
 
 static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
@@ -48,44 +48,44 @@ static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
 {
 	/* done - position in buf to store */
 	/* rcount - number of bytes to store in buf */
-	/* total - total number of bytes to store in buf 
+	/* total - total number of bytes to store in buf
 	 * -- not the total number of bytes read */
-	static char *buf; 
-	static int total = 0; 
-	static int done; 
-	int res = 0; 
+	static char *buf;
+	static int total = 0;
+	static int done;
+	int res = 0;
 	int rcount = count; /* real count */
-	
+
 	if (!(*ppos)) {
 		/* first input */
 		if (copy_from_user(&total, ubuf, sizeof(int)))
-			return -EFAULT; 
-		done = 0; 
-		buf = kzalloc(total, GFP_ATOMIC); 
+			return -EFAULT;
+		done = 0;
+		buf = kzalloc(total, GFP_ATOMIC);
 		if (!buf)
-			return -ENOMEM; 
-		rcount = count - sizeof(int); 
+			return -ENOMEM;
+		rcount = count - sizeof(int);
 	}
 
 	if (!buf)
-		return -EINVAL; 
+		return -EINVAL;
 
-	if (((rcount + done) > total) || 
+	if (((rcount + done) > total) ||
 		(copy_from_user(buf + done, ubuf, rcount))) {
-		kfree(buf); 
-		buf = NULL; 
-		return -EFAULT; 
+		kfree(buf);
+		buf = NULL;
+		return -EFAULT;
 	}
 
-	done += rcount; 
+	done += rcount;
 
 	if (done == total) {
-		ept_dict_free(); 
-		res = ept_dict_populate(buf, total); 
-		kfree(buf); 
+		ept_dict_free();
+		res = ept_dict_populate(buf, total);
+		kfree(buf);
 	}
 
-	return (res < 0) ? res : count; 
+	return (res < 0) ? res : count;
 }
 
 static const struct file_operations ept_dict_fops = {
@@ -110,7 +110,7 @@ fs_initcall(sting_ept_dict_init);
 
 /* Entrypoint dictionary */
 
-static struct rw_semaphore ept_dict_lock; 
+static struct rw_semaphore ept_dict_lock;
 // DEFINE_RWLOCK(ept_dict_lock);
 
 #define DICT_HASH_BITS            8
@@ -138,12 +138,12 @@ static struct dict_val *ept_dict_val_get(struct dict_entry *e)
 
 static int ept_dict_key_cmp(struct dict_key *k1, struct dict_key *k2)
 {
-	struct ept_dict_key *kc1 = (struct ept_dict_key *) k1; 
-	struct ept_dict_key *kc2 = (struct ept_dict_key *) k2; 
-	return !((kc1->ino == kc2->ino) && 
-			(kc1->offset == kc2->offset) && 
-			(!strcmp(kc1->int_filename, kc2->int_filename)) && 
-			(kc1->int_lineno == kc2->int_lineno)); 
+	struct ept_dict_key *kc1 = (struct ept_dict_key *) k1;
+	struct ept_dict_key *kc2 = (struct ept_dict_key *) k2;
+	return !((kc1->ino == kc2->ino) &&
+			(kc1->offset == kc2->offset) &&
+			(!strcmp(kc1->int_filename, kc2->int_filename)) &&
+			(kc1->int_lineno == kc2->int_lineno));
 }
 
 static int ept_dict_val_cmp(struct dict_val *v1, struct dict_val *v2)
@@ -163,7 +163,7 @@ static void ept_dict_val_cpy(struct dict_val *vdest, struct dict_val *vsrc)
 
 static struct dict_entry *ept_dict_entry_alloc(void)
 {
-	return kmalloc(sizeof(struct ept_dict_entry), GFP_KERNEL);
+	return kzalloc(sizeof(struct ept_dict_entry), GFP_KERNEL);
 }
 
 static void ept_dict_entry_free(struct dict_entry *e)
@@ -173,26 +173,26 @@ static void ept_dict_entry_free(struct dict_entry *e)
 
 static void ept_dict_get_read_lock(void)
 {
-	down_read(&ept_dict_lock); 
-	// read_lock(&ept_dict_lock); 
+	down_read(&ept_dict_lock);
+	// read_lock(&ept_dict_lock);
 }
 
 static void ept_dict_release_read_lock(void)
 {
-	up_read(&ept_dict_lock); 
+	up_read(&ept_dict_lock);
 	// read_unlock(&ept_dict_lock);
 }
 
 static void ept_dict_get_write_lock(void)
 {
-	down_write(&ept_dict_lock); 
-	// write_lock(&ept_dict_lock); 
+	down_write(&ept_dict_lock);
+	// write_lock(&ept_dict_lock);
 }
 
 static void ept_dict_release_write_lock(void)
 {
-	up_write(&ept_dict_lock); 
-	// write_unlock(&ept_dict_lock); 
+	up_write(&ept_dict_lock);
+	// write_unlock(&ept_dict_lock);
 }
 
 static struct dict_fns ept_dict_fns = {
@@ -227,9 +227,9 @@ EXPORT_SYMBOL(ept_dict_entry_remove);
 
 void ept_dict_free(void)
 {
-	dict_free(ept_dict_htable, DICT_HTABLE_SIZE, &ept_dict_fns); 
+	dict_free(ept_dict_htable, DICT_HTABLE_SIZE, &ept_dict_fns);
 }
-EXPORT_SYMBOL(ept_dict_free); 
+EXPORT_SYMBOL(ept_dict_free);
 
 struct ept_dict_entry *ept_dict_entry_set(struct ept_dict_key *key, struct ept_dict_val *val)
 {
@@ -263,15 +263,15 @@ static void ept_dict_f_print(struct dict_entry *e, void *pd)
 	struct ept_dict_entry *et = (struct ept_dict_entry *) e;
 
 	#if 0
-	STING_LOG("key: [%lu,%lx] value: [%lu,%d,%s,%d,%d,%d,%d,%d]\n", 
-			(unsigned long) et->key.ino, et->key.offset, 
-			et->val.time, et->val.ctr, et->val.comm, 
-			et->val.dac.ctr_first_adv, et->val.dac.adversary_access, 
-			et->val.mac.ctr_first_adv, et->val.mac.adversary_access, 
+	STING_LOG("key: [%lu,%lx] value: [%lu,%d,%s,%d,%d,%d,%d,%d]\n",
+			(unsigned long) et->key.ino, et->key.offset,
+			et->val.time, et->val.ctr, et->val.comm,
+			et->val.dac.ctr_first_adv, et->val.dac.adversary_access,
+			et->val.mac.ctr_first_adv, et->val.mac.adversary_access,
 			et->val.attack_history);
 	#endif
 
-	EPT_DICT_DUMP(et, sizeof(*et)); 
+	EPT_DICT_DUMP(et, sizeof(*et));
 }
 
 void ept_dict_entries(int *nadv, int *ntot)
@@ -288,17 +288,17 @@ EXPORT_SYMBOL(ept_dict_entries);
 
 int ept_dict_populate(void *buf, int sz)
 {
-	struct ept_dict_entry *r; 
-	struct ept_dict_entry *e; 
-	for (e = (struct ept_dict_entry *) buf; 
+	struct ept_dict_entry *r;
+	struct ept_dict_entry *e;
+	for (e = (struct ept_dict_entry *) buf;
 			(char *) e < ((char *) buf + sz); e++) {
-		r = ept_dict_entry_set(&e->key, &e->val); 
+		r = ept_dict_entry_set(&e->key, &e->val);
 		if (IS_ERR(r))
-			return PTR_ERR(r); 
+			return PTR_ERR(r);
 	}
-	return 0; 
+	return 0;
 }
-EXPORT_SYMBOL(ept_dict_populate); 
+EXPORT_SYMBOL(ept_dict_populate);
 
 static int __init ept_dict_target_init(void)
 {
@@ -309,7 +309,7 @@ static int __init ept_dict_target_init(void)
 	for (i = 0; i < DICT_HTABLE_SIZE; i++)
 		INIT_HLIST_HEAD(&ept_dict_htable[i]);
 
-	init_rwsem(&ept_dict_lock); 
+	init_rwsem(&ept_dict_lock);
 
 	return rc;
 }

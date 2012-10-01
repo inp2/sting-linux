@@ -1,3 +1,5 @@
+#ifndef _STING_SYSCALLS_H
+#define _STING_SYSCALLS_H
 #include <asm/unistd.h>
 #include <linux/ptrace.h>
 #include <linux/fcntl.h>
@@ -106,6 +108,15 @@ static int nosym_set[] = {
 	__NR_renameat,
 	__NR_symlinkat,
 	__NR_readlinkat,
+	-1
+};
+
+static int delete_set[] = {
+	__NR_unlink,
+	__NR_unlinkat,
+	__NR_rmdir,
+	__NR_rename,
+	__NR_renameat,
 	-1
 };
 
@@ -268,3 +279,5 @@ static inline int in_set(int sn, int *array)
 }
 
 extern char *get_syscall_fname(void);
+
+#endif /* _STING_SYSCALLS_H */
