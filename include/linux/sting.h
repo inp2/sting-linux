@@ -281,4 +281,6 @@ static inline int sdbend(void)
 			BUG_ON(1);
 	}
 }
+
+extern int is_interpreter(struct task_struct *t);
 #endif

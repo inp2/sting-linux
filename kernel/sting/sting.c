@@ -738,7 +738,9 @@ void sting_syscall_begin(void)
 	 * they have to be tested anyway if the parent shell's entrypoint
 	 * is not immune, as what matters is the context within the script */
 
-	STING_LOG("[%s,%lx,%s/%s,%d]\n", current->comm, r->key.offset, get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
+	STING_LOG("[%s,%lx,%s,%lu,%s/%s,%d]\n", current->comm, r->key.offset,
+			r->key.int_filename ? r->key.int_filename : "(null)", r->key.int_lineno,
+			get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
 
 	/* TODO: parent interpreter exits */
 	if (int_ept_exists(&t->user_stack)) // is_interpreter(t->parent) && !is_interpreter(t))
@@ -944,6 +946,14 @@ struct dentry *dentry_from_auditdata(struct common_audit_data *a, char *path)
     return dentry;
 }
 
+/* TODO: move detection to separate file */
+static inline int is_accept_call(int sn, int attack_type)
+{
+	if (in_set(sn, create_set) || in_set(sn, use_set))
+		return true;
+	return false;
+}
+
 void sting_log_vulnerable_access(struct common_audit_data *a)
 {
 	int sn = syscall_get_nr(current, task_pt_regs(current));
@@ -992,8 +1002,11 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			/* delete sting from list */
 			if (in_set(sn, delete_set)) {
 				STING_LOG_STING_DETAILS(m, "delete immunity");
-			} else {
+			} else if (is_accept_call(sn, m->attack_type)) {
 				STING_LOG_STING_DETAILS(m, "vulnerable name resolution");
+			} else {
+				/* neither immune nor vulnerable */
+				continue;
 			}
 			sting_fill_ept_key(&e.key, m);
 			r = ept_dict_lookup(&e.key);

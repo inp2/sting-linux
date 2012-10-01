@@ -279,5 +279,4 @@ static inline int in_set(int sn, int *array)
 }
 
 extern char *get_syscall_fname(void);
-
 #endif /* _STING_SYSCALLS_H */

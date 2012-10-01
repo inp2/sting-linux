@@ -1309,13 +1309,15 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	#ifdef CONFIG_STING
 	p->sting_request = 0;
-	
-	if (on_script_behalf(&current->user_stack)) {
-		user_interpreter_unwind(&current->user_stack); 
-		copy_interpreter_info(p, current); 
+	if (is_interpreter(current)) {
+		user_unwind(current);
+		if (on_script_behalf(&current->user_stack)) {
+			user_interpreter_unwind(&current->user_stack);
+			copy_interpreter_info(p, current);
+		}
 	} else {
-		p->user_stack.int_trace.nr_entries = 0; 
-		p->user_stack.int_trace.max_entries = USER_STACK_MAX; 
+		p->user_stack.int_trace.nr_entries = 0;
+		p->user_stack.int_trace.max_entries = USER_STACK_MAX;
 	}
 	#endif
 
