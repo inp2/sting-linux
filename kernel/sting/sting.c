@@ -344,7 +344,10 @@ void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 		st->pid = t->pid;
 	st->offset = ept_offset_get(&t->user_stack);
 	st->ino = ept_inode_get(&t->user_stack);
-	get_task_comm(st->comm, t);
+	if (sting_parent)
+		get_task_comm(st->comm, t->parent);
+	else
+		get_task_comm(st->comm, t);
 	/* parent's interpreter context is stored in child during fork,
 	 * if child itself is not an interpreter */
 	if (int_ept_exists(&t->user_stack))
@@ -742,8 +745,8 @@ void sting_syscall_begin(void)
 			r->key.int_filename ? r->key.int_filename : "(null)", r->key.int_lineno,
 			get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
 
-	/* TODO: parent interpreter exits */
-	if (int_ept_exists(&t->user_stack)) // is_interpreter(t->parent) && !is_interpreter(t))
+	if (int_ept_exists(&t->user_stack) && !is_interpreter(t))
+		// is_interpreter(t->parent) && !is_interpreter(t))
 		sting_parent = 1;
 
 	/* check if inode has been used for another test case */
@@ -876,10 +879,11 @@ void sting_process_exit(void)
 	if (!check_valid_user_context(current))
 		return;
 
-	st.pid = current->pid;
 	st_cp = kmem_cache_alloc(sting_cachep, GFP_KERNEL);
 	if (!st_cp)
 		return;
+
+	st.pid = current->pid;
 
 	/* find and delete all corresponding stings and mark immune */
 	while (1) {
@@ -980,18 +984,21 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 
 	d = dentry_from_auditdata(a, path);
 
-	if (d && sting_already_launched(d) &&
-			(in_set(sn, create_set) || in_set(sn, use_set) ||
-			in_set(sn, delete_set))) {
+	if (d && sting_already_launched(d)) {
+//			(in_set(sn, create_set) || in_set(sn, use_set) ||
+//			in_set(sn, delete_set))) {
 		struct sting st;
 		st.path_ino = d->d_inode->i_ino;
-		st.pid = current->pid;
+		if (int_ept_exists(&current->user_stack) && !is_interpreter(current))
+			st.pid = current->parent->pid;
+		else
+			st.pid = current->pid;
 		/* find and delete all corresponding stings and mark vulnerable */
 		while (1) {
 			m = sting_list_get(&st, MATCH_INO | MATCH_PID);
 			if (!m) {
 				if (!i)
-					STING_ERR(1, "no attack in list although marked: [%s]\n", d->d_name.name);
+					STING_LOG("no attack in list although marked: [%s]\n", d->d_name.name);
 				break;
 			}
 			if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
