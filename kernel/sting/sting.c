@@ -307,7 +307,7 @@ void sting_list_del(struct sting *st)
 	kmem_cache_free(sting_cachep, st);
 }
 
-struct sting *sting_list_get(struct sting *st, int st_flags)
+struct sting *sting_list_get(struct sting *st, int st_flags, struct sting *start)
 {
 	struct sting *t, *n;
 	down_read(&stings_rwlock);
@@ -325,7 +325,8 @@ struct sting *sting_list_get(struct sting *st, int st_flags)
 									st->path_ino)))
 			))
 			continue;
-
+		if (start && !memcmp(start, t, sizeof(struct sting)))
+			continue;
 		/* match */
 		up_read(&stings_rwlock);
 		return t;
@@ -523,7 +524,7 @@ int sting_rollback(struct sting *st)
 	int sn = syscall_get_nr(current, task_pt_regs(current));
 	int c_res_type;
 
-	m = sting_list_get(st, MATCH_INO);
+	m = sting_list_get(st, MATCH_INO, NULL);
 	if (m) {
 		/* there exists a pending sting with the same inode number.
 		   do not rollback. */
@@ -762,7 +763,7 @@ void sting_syscall_begin(void)
 			 * entrypoint to same attack if adversary.
 			 * TODO: if not, mark as redirect to lower branch.  */
 			st.path = child;
-			m = sting_list_get(&st, MATCH_INO);
+			m = sting_list_get(&st, MATCH_INO, NULL);
 			if (!m) {
 				STING_ERR(1, "no attack in list although marked: [%s]\n", fname);
 				goto parent_put;
@@ -787,7 +788,7 @@ void sting_syscall_begin(void)
 
 	/* mark immune on retry; don't launch attack */
 	task_fill_sting(&st, t, sting_parent);
-	m = sting_list_get(&st, MATCH_PID | MATCH_EPT);
+	m = sting_list_get(&st, MATCH_PID | MATCH_EPT, NULL);
 	if (m) {
 		STING_LOG_STING_DETAILS(m, "retry immunity");
 		sting_mark_immune(r, m->attack_type);
@@ -874,7 +875,6 @@ void sting_process_exit(void)
 	struct sting st, *m = NULL, *p = NULL;
 	struct ept_dict_entry e, *r;
 	struct sting *st_cp; /* copy of sting */
-	int i = 0;
 
 	if (!check_valid_user_context(current))
 		return;
@@ -887,12 +887,10 @@ void sting_process_exit(void)
 
 	/* find and delete all corresponding stings and mark immune */
 	while (1) {
-		m = sting_list_get(&st, MATCH_PID);
-		if (!m) {
-			if (!i)
-				STING_ERR(1, "no attack in list although marked\n");
+		m = sting_list_get(&st, MATCH_PID, m);
+		if (!m)
 			break;
-		}
+
 		if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
 			STING_DBG("another non-adversarial attack ongoing: [%s]\n", m->pathname);
 			continue;
@@ -907,7 +905,6 @@ void sting_process_exit(void)
 		sting_list_del(m);
 		/* after sting_list_del so we will not find ourselves on the list. */
 		sting_rollback(st_cp);
-		i++;
 	}
 
 	kmem_cache_free(sting_cachep, st_cp);
@@ -963,7 +960,7 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 	int sn = syscall_get_nr(current, task_pt_regs(current));
 	char *path = NULL;
 	struct dentry *d = NULL;
-	struct sting *m, *p = NULL;
+	struct sting *m = NULL, *p = NULL;
 	struct ept_dict_entry e, *r;
 	int i = 0;
 	struct sting *st_cp; /* copy of sting */
@@ -995,7 +992,7 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			st.pid = current->pid;
 		/* find and delete all corresponding stings and mark vulnerable */
 		while (1) {
-			m = sting_list_get(&st, MATCH_INO | MATCH_PID);
+			m = sting_list_get(&st, MATCH_INO | MATCH_PID, m);
 			if (!m) {
 				if (!i)
 					STING_LOG("no attack in list although marked: [%s]\n", d->d_name.name);
