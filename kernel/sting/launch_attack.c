@@ -473,7 +473,9 @@ int file_create(char __user *fname, struct path* parent,
 		} else if (type == T_DIR) {
 			STING_SYSCALL(ret = sys_mkdir(fname, 0777));
 		}
-		if ((ret < 0) && (ret != -EEXIST)) {
+		if (ret == -EEXIST)
+			ret = 0;
+		if (ret < 0) {
 			printk(KERN_INFO STING_MSG "Can't create file/dir %s: %d?\n", fname, ret);
 		}
 		/* goto mark; */
