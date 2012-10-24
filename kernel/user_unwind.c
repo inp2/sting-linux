@@ -284,7 +284,9 @@ void put_user_pages_range(struct page **pgs, unsigned long sz)
  * get_eh_section() - Pointer to ELF eh_frame_hdr + eh_frame sections.
  * @vma:		VM area where code is mapped in
  *
- * Caller has to free allocated buffer
+ * Caller has to free allocated buffer. 
+ * NOTE: The EH_FRAME program header is the concatenation of the 
+ * .eh_frame_hdr and .eh_frame section headers. 
  */
 
 unsigned long get_eh_section(struct vm_area_struct *vma, unsigned long *eh_start)
@@ -682,7 +684,7 @@ void user_unwind(struct task_struct *t)
 	unsigned long eh_start, eh_len;
 	struct page **eh_frame_pgs = NULL;
 	struct page **stack_pgs = NULL;
-	int np_ehf, np_st, ret = 0;
+	int np_ehf, np_st, ret = 0, i;
 	struct pt_regs regs;
 	unsigned long stack_start, stack_end;
 	struct user_stack_info *us = &(t->user_stack);
@@ -743,7 +745,11 @@ void user_unwind(struct task_struct *t)
 		np_ehf = get_user_pages_range(t, eh_start, eh_len, &eh_frame_pgs);
 		eh_frame_data((char *) eh_start, &ed);
 
+		/* if the eh_frame_hdr lookup fails in the first attempt, for 
+		 * this VMA, then this means lookup has really failed. do NOT retry. */
+		i = 0; 
 		do { /* for each frame in the vm area */
+			i++; 
 			if (STING_DBG_ON)
 				__show_unw_regs(&unw);
 
@@ -764,10 +770,20 @@ void user_unwind(struct task_struct *t)
 
 		/* If unw_step failed because of anything other than
 			eh_frame_hdr lookup (-ENOENT), break out. -ENOENT is
-			ok, as it signifies the next VMA region for stack IPs.
+			ok, as it signifies the next VMA region for stack IPs, 
+			UNLESS it is returned in the first lookup for a VMA region. 		
 			-ENOENT is returned only by lookup(). */
-		if (ret != -ENOENT)
+		if (ret != -ENOENT) {
 			goto fail_put_region_pages;
+		} else if (ret == -ENOENT && i == 1) {
+			/* failed on first attempt; this VMA does not have 
+			 * the needed eh_frame entry.  revert to normal trace */
+			STING_ERR(2, "eh_frame_hdr does not contain IP, "
+				"reverting to normal trace: [%s]\n", t->comm);
+			us_init(&(t->user_stack));
+			static_save_stack_trace_user(t, &(t->user_stack.trace));
+			goto fail_put_region_pages; 
+		}
 		/* Release pinned pages */
 		put_user_pages_range(eh_frame_pgs, np_ehf);
 	} while (1);
