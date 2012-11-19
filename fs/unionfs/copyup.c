@@ -23,7 +23,7 @@
  * Documentation/filesystems/unionfs/concepts.txt
  */
 
-#ifdef CONFIG_UNION_FS_XATTR
+#ifdef CONFIG_STING_UNION_FS_XATTR
 /* copyup all extended attrs for a given dentry */
 static int copyup_xattrs(struct dentry *old_lower_dentry,
 			 struct dentry *new_lower_dentry)
@@ -118,7 +118,7 @@ out:
 		err = 0;
 	return err;
 }
-#endif /* CONFIG_UNION_FS_XATTR */
+#endif /* CONFIG_STING_UNION_FS_XATTR */
 
 /*
  * Determine the mode based on the copyup flags, and the existing dentry.
@@ -479,12 +479,12 @@ int copyup_dentry(struct inode *dir, struct dentry *dentry, int bstart,
 	if (err)
 		goto out_unlink;
 
-#ifdef CONFIG_UNION_FS_XATTR
+#ifdef CONFIG_STING_UNION_FS_XATTR
 	/* Selinux uses extended attributes for permissions. */
 	err = copyup_xattrs(old_lower_dentry, new_lower_dentry);
 	if (err)
 		goto out_unlink;
-#endif /* CONFIG_UNION_FS_XATTR */
+#endif /* CONFIG_STING_UNION_FS_XATTR */
 
 	/* do not allow files getting deleted to be re-interposed */
 	if (!d_deleted(dentry))

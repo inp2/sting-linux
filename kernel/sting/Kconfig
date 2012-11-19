@@ -1,0 +1,9 @@
+config STING
+	bool "Detect vulnerabilities in programs"
+	depends on EXPERIMENTAL && X86_32 && PREEMPT && SECURITY_SELINUX
+	help
+	  STING is a system that detects name resolution vulnerabilities in
+	  programs.
+
+	  See http://siis.cse.psu.edu/sting/ for details.
+	  If you are unsure how to answer this question, answer N.

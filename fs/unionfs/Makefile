@@ -2,7 +2,7 @@ UNIONFS_VERSION="2.5.11 (for 3.3.0-rc3)"
 
 EXTRA_CFLAGS += -DUNIONFS_VERSION=\"$(UNIONFS_VERSION)\"
 
-obj-$(CONFIG_UNION_FS) += unionfs.o
+obj-$(CONFIG_STING_UNION_FS) += unionfs.o
 
 unionfs-y := subr.o dentry.o file.o inode.o main.o super.o \
 	rdstate.o copyup.o dirhelper.o rename.o unlink.o \

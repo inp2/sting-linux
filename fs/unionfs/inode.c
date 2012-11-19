@@ -1261,12 +1261,12 @@ struct inode_operations unionfs_symlink_iops = {
 	.follow_link	= unionfs_follow_link,
 	.setattr	= unionfs_setattr,
 	.put_link	= unionfs_put_link,
-#ifdef CONFIG_UNION_FS_XATTR
+#ifdef CONFIG_STING_UNION_FS_XATTR
 	.setxattr	= unionfs_setxattr,
 	.getxattr	= unionfs_getxattr,
 	.removexattr	= unionfs_removexattr,
 	.listxattr	= unionfs_listxattr,
-#endif /* CONFIG_UNION_FS_XATTR */
+#endif /* CONFIG_STING_UNION_FS_XATTR */
 };
 
 struct inode_operations unionfs_dir_iops = {
@@ -1281,21 +1281,21 @@ struct inode_operations unionfs_dir_iops = {
 	.rename		= unionfs_rename,
 	.permission	= unionfs_permission,
 	.setattr	= unionfs_setattr,
-#ifdef CONFIG_UNION_FS_XATTR
+#ifdef CONFIG_STING_UNION_FS_XATTR
 	.setxattr	= unionfs_setxattr,
 	.getxattr	= unionfs_getxattr,
 	.removexattr	= unionfs_removexattr,
 	.listxattr	= unionfs_listxattr,
-#endif /* CONFIG_UNION_FS_XATTR */
+#endif /* CONFIG_STING_UNION_FS_XATTR */
 };
 
 struct inode_operations unionfs_main_iops = {
 	.permission	= unionfs_permission,
 	.setattr	= unionfs_setattr,
-#ifdef CONFIG_UNION_FS_XATTR
+#ifdef CONFIG_STING_UNION_FS_XATTR
 	.setxattr	= unionfs_setxattr,
 	.getxattr	= unionfs_getxattr,
 	.removexattr	= unionfs_removexattr,
 	.listxattr	= unionfs_listxattr,
-#endif /* CONFIG_UNION_FS_XATTR */
+#endif /* CONFIG_STING_UNION_FS_XATTR */
 };

@@ -460,7 +460,7 @@ extern void purge_sb_data(struct super_block *sb);
 extern struct dentry *unionfs_interpose(struct dentry *this_dentry,
 					struct super_block *sb, int flag);
 
-#ifdef CONFIG_UNION_FS_XATTR
+#ifdef CONFIG_STING_UNION_FS_XATTR
 /* Extended attribute functions. */
 extern void *unionfs_xattr_alloc(size_t size, size_t limit);
 static inline void unionfs_xattr_kfree(const void *p)
@@ -474,7 +474,7 @@ extern ssize_t unionfs_listxattr(struct dentry *dentry, char *list,
 				 size_t size);
 extern int unionfs_setxattr(struct dentry *dentry, const char *name,
 			    const void *value, size_t size, int flags);
-#endif /* CONFIG_UNION_FS_XATTR */
+#endif /* CONFIG_STING_UNION_FS_XATTR */
 
 /* The root directory is unhashed, but isn't deleted. */
 static inline int d_deleted(struct dentry *d)
@@ -608,11 +608,11 @@ static inline struct vfsmount *unionfs_mntget(struct dentry *dentry,
 	BUG_ON(!dentry || bindex < 0);
 
 	mnt = mntget(unionfs_lower_mnt_idx(dentry, bindex));
-#ifdef CONFIG_UNION_FS_DEBUG
+#ifdef CONFIG_STING_UNION_FS_DEBUG
 	if (!mnt)
 		pr_debug("unionfs: mntget: mnt=%p bindex=%d\n",
 			 mnt, bindex);
-#endif /* CONFIG_UNION_FS_DEBUG */
+#endif /* CONFIG_STING_UNION_FS_DEBUG */
 
 	return mnt;
 }
@@ -626,7 +626,7 @@ static inline void unionfs_mntput(struct dentry *dentry, int bindex)
 	BUG_ON(!dentry || bindex < 0);
 
 	mnt = unionfs_lower_mnt_idx(dentry, bindex);
-#ifdef CONFIG_UNION_FS_DEBUG
+#ifdef CONFIG_STING_UNION_FS_DEBUG
 	/*
 	 * Directories can have NULL lower objects in between start/end, but
 	 * NOT if at the start/end range.  We cannot verify that this dentry
@@ -636,11 +636,11 @@ static inline void unionfs_mntput(struct dentry *dentry, int bindex)
 	 */
 	if (!mnt && !(bindex > dbstart(dentry) && bindex < dbend(dentry)))
 		pr_debug("unionfs: mntput: mnt=%p bindex=%d\n", mnt, bindex);
-#endif /* CONFIG_UNION_FS_DEBUG */
+#endif /* CONFIG_STING_UNION_FS_DEBUG */
 	mntput(mnt);
 }
 
-#ifdef CONFIG_UNION_FS_DEBUG
+#ifdef CONFIG_STING_UNION_FS_DEBUG
 
 /* useful for tracking code reachability */
 #define UDBG pr_debug("DBG:%s:%s:%d\n", __FILE__, __func__, __LINE__)
@@ -680,7 +680,7 @@ extern void __show_dinode_times(const struct dentry *dentry,
 extern void __show_inode_counts(const struct inode *inode,
 				const char *file, const char *fxn, int line);
 
-#else /* not CONFIG_UNION_FS_DEBUG */
+#else /* not CONFIG_STING_UNION_FS_DEBUG */
 
 /* we leave useful hooks for these check functions throughout the code */
 #define unionfs_check_inode(i)		do { } while (0)
@@ -693,6 +693,6 @@ extern void __show_inode_counts(const struct inode *inode,
 #define show_inode_counts(i)		do { } while (0)
 #define UDBG				do { } while (0)
 
-#endif /* not CONFIG_UNION_FS_DEBUG */
+#endif /* not CONFIG_STING_UNION_FS_DEBUG */
 
 #endif	/* not _UNION_H_ */

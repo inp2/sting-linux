@@ -1,3 +1,32 @@
+/*
+ * Copyright (c) 2011-2012 Hayawardh Vijayakumar
+ * Copyright (c) 2011-2012 Systems and Internet Infrastructure Security Lab
+ * Copyright (c) 2011-2012 The Pennsylvania State University
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * Structure definitions taken from php-5.3.8 and the Zend framework:
+ *
+ * This source file is subject to version 3.01 of the PHP license,
+ * that is bundled with this package in the file LICENSE, and is
+ * available through the world-wide-web at the following url:
+ * http://www.php.net/license/3_01.txt
+ * If you did not receive a copy of the PHP license and are unable to
+ * obtain it through the world-wide-web, please send a note to
+ * license@php.net so we can mail you a copy immediately.
+ *
+ * This source file is subject to version 2.00 of the Zend license,
+ * that is bundled with this package in the file LICENSE, and is
+ * available through the world-wide-web at the following url:
+ * http://www.zend.com/license/2_00.txt.
+ * If you did not receive a copy of the Zend license and are unable to
+ * obtain it through the world-wide-web, please send a note to
+ * license@zend.com so we can mail you a copy immediately.
+ *
+ */
+
 
 typedef unsigned char zend_bool;
 typedef unsigned char zend_uchar;

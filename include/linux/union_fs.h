@@ -30,9 +30,19 @@ static inline int is_unionfs(struct dentry *dentry)
 	return false;
 }
 
+#ifdef STING_UNION_FS
 struct dentry *unionfs_lower_dentry_idx_export(
 				const struct dentry *dent,
 				int index);
+#else
+struct dentry *unionfs_lower_dentry_idx_export(
+				const struct dentry *dent,
+				int index)
+{
+
+}
+#endif
+
 #endif /* __KERNEL__ */
 
 #endif /* _LINUX_UNIONFS_H */

@@ -1,5 +1,16 @@
+/*
+ * Copyright (c) 2011-2012 Hayawardh Vijayakumar
+ * Copyright (c) 2011-2012 Systems and Internet Infrastructure Security Lab
+ * Copyright (c) 2011-2012 The Pennsylvania State University
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #ifndef _STING_H_
 #define _STING_H_
+#ifdef CONFIG_STING
 
 #include <linux/types.h>
 #include <linux/list.h>
@@ -162,9 +173,25 @@ static inline int sting_adversary(uid_t a, uid_t v)
 extern int sting_already_launched(struct dentry *dentry);
 
 extern void sting_log_vulnerable_access(struct common_audit_data *a);
+#else
+void sting_syscall_begin(void)
+{
 
+}
+
+void sting_process_exit(void)
+{
+
+}
+
+void sting_log_vulnerable_access(struct common_audit_data *a)
+{
+
+}
+#endif /* CONFIG_STING */
+
+#ifdef CONFIG_STING
 /* unionfs-related */
-
 #define STING_ADV_BID 0
 #define STING_NON_ADV_BID 1
 
@@ -193,6 +220,7 @@ extern void sting_log_vulnerable_access(struct common_audit_data *a);
 #define ROLLBACK_INT   0x40
 #define NORMAL_RES_INT 0x80
 
+#ifdef CONFIG_STING_UNION_FS
 static inline int sting_set_res_type(struct task_struct *t, int type)
 {
 	int c_res_type = (t->sting_res_type & RES_BRANCH_MASK);
@@ -281,6 +309,31 @@ static inline int sdbend(void)
 			BUG_ON(1);
 	}
 }
+#else
+static inline int sting_set_res_type(struct task_struct *t, int type)
+{
+	return 0;
+}
+
+static inline int sting_set_res_intent(struct task_struct *t, int flag)
+{
+	return 0;
+}
+
+static inline int sting_get_res_type(struct task_struct *t)
+{
+	return 0;
+}
+
+static inline int sting_get_res_intent(struct task_struct *t)
+{
+	return 0;
+}
+
+#endif /* CONFIG_STING_UNION_FS */
 
 extern int is_interpreter(struct task_struct *t);
-#endif
+
+#endif /* CONFIG_STING */
+
+#endif /* _STING_H_ */

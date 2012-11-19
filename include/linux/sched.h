@@ -92,9 +92,6 @@ struct sched_param {
 #include <linux/llist.h>
 
 #include <linux/user_unwind.h>
-/* STINGTODO: Don't want to recompile everytime sting.h/user_unwind.h changes, so for now, copy these here */
-/* TODO: Make this a kernel config */
-#define CONFIG_STING
 
 #include <asm/processor.h>
 

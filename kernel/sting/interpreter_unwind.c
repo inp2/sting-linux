@@ -1,3 +1,20 @@
+/*
+ * Copyright (c) 2011-2012 Hayawardh Vijayakumar
+ * Copyright (c) 2011-2012 Systems and Internet Infrastructure Security Lab
+ * Copyright (c) 2011-2012 The Pennsylvania State University
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * Stack unrolling code taken from bash-4.1:
+ *
+ * Bash is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
 #include <linux/stop_machine.h>
 #include <linux/clocksource.h>
 #include <linux/kallsyms.h>
@@ -46,7 +63,7 @@ struct int_bt_info {
 	ino_t ino; /* interpreter inode */
 
 	/* if the user stack trace contains the loop function, then
-	 * it means the call was made on behalf of a script, and 
+	 * it means the call was made on behalf of a script, and
 	 * a script line number can be extracted from the interpreter */
 	unsigned long loop_fn; /* start address of loop fn */
 	unsigned long size; /* size of loop fn */
@@ -56,32 +73,32 @@ struct int_bt_info {
 
 	/* number of variables (including interpreter object) whose addresses
 	 * are fetched from the interpreter binary's symtab in userspace */
-	int nr_vars; 
+	int nr_vars;
 
 	/* is each variable global, or local to some function? */
-	int is_global[MAX_INT_VARS]; 
+	int is_global[MAX_INT_VARS];
 
 	/* details of each of these nr_vars */
 	union {
 		struct {
 			/* local function containing interpreter object */
-			unsigned long local_fn; 
-			unsigned long size; 
-			/* offset of variable on stack from stack pointer 
+			unsigned long local_fn;
+			unsigned long size;
+			/* offset of variable on stack from stack pointer
 			 * identified by above function */
-			unsigned long var_off; 
-		} local_var; 
+			unsigned long var_off;
+		} local_var;
 		/* address of global interpreter obj from symtab */
-		unsigned long global_var; 
-	} var_info[MAX_INT_VARS]; 
+		unsigned long global_var;
+	} var_info[MAX_INT_VARS];
 	/* function to be invoked to get trace */
-	int (*unwind) (struct user_stack_info *t); 
-}; 
+	int (*unwind) (struct user_stack_info *t);
+};
 
 /* TODO: make below into list */
 
-/* 
- * bash vars: 
+/*
+ * bash vars:
  * var_info	[0] - shell_variables (global)
  *   		[1]	- currently_executing_command (global)
  *   		[2] - executing (global)
@@ -91,14 +108,14 @@ struct int_bt_info {
  *   		[6] - line_number (global)
  */
 
-struct int_bt_info bash_bt_info; 
+struct int_bt_info bash_bt_info;
 
-/* 
+/*
  * php vars:
  * var_info [0] - executor_globals (global)
  */
 
-struct int_bt_info php_bt_info; 
+struct int_bt_info php_bt_info;
 
 char scratch_string[INT_FNAME_MAX];
 
@@ -294,7 +311,7 @@ void get_userspace_ref(char *var_name, void __user **ptr, Elf_Sym *symtab, char 
 	*ptr = NULL;
 	return;
 }
-#endif 
+#endif
 
 /* BASH BEGIN */
 
@@ -309,7 +326,7 @@ hash_string (const char *s)
 
      The magic is in the interesting relationship between the special prime
      16777619 (2^24 + 403) and 2^32 and 2^8. */
- 
+
   for (i = 0; *s; s++)
     {
       i *= 16777619;
@@ -337,7 +354,7 @@ hash_search (const char *string, HASH_TABLE *table)
 	if (bucket_array == NULL)
 		goto end;
 	/* ??? * sizeof(void *)? */
-	for (list = (BUCKET_CONTENTS *) A(bucket_array, bucket * sizeof(void *)); 
+	for (list = (BUCKET_CONTENTS *) A(bucket_array, bucket * sizeof(void *));
 			list; list = (BUCKET_CONTENTS *) A(list, O(list, next)))
 //  for (list = table->bucket_array ? table->bucket_array[bucket] : 0; list; list = list->next)
     {
@@ -379,8 +396,8 @@ find_variable_internal (const char *name, struct user_stack_info *us)
 	SHELL_VAR *var;
 	VAR_CONTEXT *shell_variables = (VAR_CONTEXT *) NULL;
 
-	shell_variables = (VAR_CONTEXT *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[0].global_var, us); 
+	shell_variables = (VAR_CONTEXT *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[0].global_var, us);
 
 	var = (SHELL_VAR *) NULL;
 
@@ -407,7 +424,7 @@ array_reference(ARRAY *a, arrayind_t i)
 		return((char *)NULL);
 
 	ae = (ARRAY_ELEMENT *) element_forw(a->head);
-	for ( ; ae != (ARRAY_ELEMENT *) A(a, O(a, head)); 
+	for ( ; ae != (ARRAY_ELEMENT *) A(a, O(a, head));
 			ae = (ARRAY_ELEMENT *) element_forw(ae)) {
 		if ((arrayind_t) element_index(ae) == i) {
 			return ((char *) element_value(ae));
@@ -421,7 +438,7 @@ array_reference(ARRAY *a, arrayind_t i)
 int
 executing_line_number(struct user_stack_info *us)
 {
-	unsigned long *command_ptr, *executing_ptr, *showing_ptr, *variable_ptr, 
+	unsigned long *command_ptr, *executing_ptr, *showing_ptr, *variable_ptr,
 				  *interactive_ptr, *line_ptr;
 	COMMAND *currently_executing_command;
 	int executing;
@@ -430,18 +447,18 @@ executing_line_number(struct user_stack_info *us)
 	int interactive_shell;
 	int line_number;
 
-	command_ptr = (unsigned long *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[1].global_var, us); 
-	executing_ptr = (unsigned long *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[2].global_var, us); 
-	showing_ptr = (unsigned long *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[3].global_var, us); 
-	variable_ptr = (unsigned long *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[4].global_var, us); 
-	interactive_ptr = (unsigned long *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[5].global_var, us); 
-	line_ptr = (unsigned long *) 
-		EPT_VMA_OFFSET(bash_bt_info.var_info[6].global_var, us); 
+	command_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[1].global_var, us);
+	executing_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[2].global_var, us);
+	showing_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[3].global_var, us);
+	variable_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[4].global_var, us);
+	interactive_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[5].global_var, us);
+	line_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[6].global_var, us);
 
 	/* dereference the pointer */
 	currently_executing_command = (COMMAND *) A(command_ptr, 0);
@@ -470,7 +487,7 @@ executing_line_number(struct user_stack_info *us)
 int pft_bash_context(struct user_stack_info *us)
 {
 	char *retval;
-	int i = 0; 
+	int i = 0;
 	SHELL_VAR *var;
 	int lineno;
 
@@ -498,13 +515,13 @@ int pft_bash_context(struct user_stack_info *us)
 			break;
 		strncpy_from_user(scratch_string, retval, INT_FNAME_MAX - 1);
 
-		us->int_trace.entries[us->int_trace.nr_entries] = lineno; 
+		us->int_trace.entries[us->int_trace.nr_entries] = lineno;
 		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries], scratch_string);
-		us->int_trace.nr_entries++; 
-		i++; 
+		us->int_trace.nr_entries++;
+		i++;
 	}
 
-	return 0; 
+	return 0;
 }
 /* BASH END */
 
@@ -518,8 +535,8 @@ int pft_php_context(struct user_stack_info *us)
 	int lineno = 0;
 
 	/* PHP-specific backtrace retrieval */
-	g = (zend_executor_globals *) 
-		EPT_VMA_OFFSET(php_bt_info.var_info[0].global_var, us); 
+	g = (zend_executor_globals *)
+		EPT_VMA_OFFSET(php_bt_info.var_info[0].global_var, us);
 
 	/* executor_globals.current_execute_data->op_array.filename */
 	/* executor_globals.current_execute_data->opline.lineno */
@@ -534,22 +551,22 @@ int pft_php_context(struct user_stack_info *us)
 			lineno = A(A(ptr, O(ptr, opline)), O(ptr->opline, lineno));
 		}
 		ptr = (zend_execute_data *) A(ptr, O(ptr, prev_execute_data));
-		us->int_trace.entries[us->int_trace.nr_entries] = lineno; 
+		us->int_trace.entries[us->int_trace.nr_entries] = lineno;
 		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries], scratch_string);
-		us->int_trace.nr_entries++; 
+		us->int_trace.nr_entries++;
 	}
 
 	return ret;
 }
 /* PHP END */
 
-unsigned long backtrace_contains(struct user_stack_info *us, 
+unsigned long backtrace_contains(struct user_stack_info *us,
 		unsigned long fn_st, unsigned long fn_len)
 {
 	int i = 0;
-	unsigned long addr = 0; 
+	unsigned long addr = 0;
 	while ((i < us->trace.nr_entries) && (us->trace.entries[i] != ULONG_MAX)) {
-		addr = (us->trace.entries[i] - us->trace.vma_start[i]); 
+		addr = (us->trace.entries[i] - us->trace.vma_start[i]);
 		if ((addr >= fn_st) && (addr < (fn_st + fn_len)))
 			return 1;
 		i++;
@@ -560,51 +577,51 @@ unsigned long backtrace_contains(struct user_stack_info *us,
 struct int_bt_info *on_script_behalf(struct user_stack_info *us)
 {
 	if (us->trace.bin_ip_exists == 0)
-		return NULL; 
+		return NULL;
 
 	if (bash_bt_info.ino && (us->trace.vma_inoden[us->trace.ept_ind] == bash_bt_info.ino))
 		if (backtrace_contains(us, bash_bt_info.loop_fn, bash_bt_info.size))
-			return &bash_bt_info; 
+			return &bash_bt_info;
 
-	if (php_bt_info.ino && us->trace.vma_inoden[us->trace.ept_ind] == php_bt_info.ino) 
+	if (php_bt_info.ino && us->trace.vma_inoden[us->trace.ept_ind] == php_bt_info.ino)
 		if (backtrace_contains(us, php_bt_info.loop_fn, php_bt_info.size))
-			return &php_bt_info; 
+			return &php_bt_info;
 
-	return NULL; 
+	return NULL;
 }
-EXPORT_SYMBOL(on_script_behalf); 
+EXPORT_SYMBOL(on_script_behalf);
 
 /* TODO: locking user_stack as we are calling parent */
 int is_interpreter(struct task_struct *t)
 {
-	ino_t exe_ino = -1; 
+	ino_t exe_ino = -1;
 
-	if (!t->mm) 
-		return 0; 
+	if (!t->mm)
+		return 0;
 
-	down_read(&t->mm->mmap_sem); 
-	exe_ino = t->mm->exe_file->f_dentry->d_inode->i_ino; 
-	up_read(&t->mm->mmap_sem); 
+	down_read(&t->mm->mmap_sem);
+	exe_ino = t->mm->exe_file->f_dentry->d_inode->i_ino;
+	up_read(&t->mm->mmap_sem);
 
-	return (bash_bt_info.ino == exe_ino || php_bt_info.ino == exe_ino); 
+	return (bash_bt_info.ino == exe_ino || php_bt_info.ino == exe_ino);
 }
-EXPORT_SYMBOL(is_interpreter); 
+EXPORT_SYMBOL(is_interpreter);
 
 int user_interpreter_unwind(struct user_stack_info *us)
 {
-	struct int_bt_info *int_info; 
+	struct int_bt_info *int_info;
 
-	/* conserve existing (parent's) interpreter info if we are 
+	/* conserve existing (parent's) interpreter info if we are
 	 * not ourselves an interpreter */
 	/* change only if this system call was done at
 	 * the behest of a script */
-	int_info = on_script_behalf(us); 
+	int_info = on_script_behalf(us);
 	if (int_info) {
-		us->int_trace.nr_entries = 0; 
-		us->int_trace.max_entries = USER_STACK_MAX; 
-		int_info->unwind(us); 
+		us->int_trace.nr_entries = 0;
+		us->int_trace.max_entries = USER_STACK_MAX;
+		int_info->unwind(us);
 	}
-	return 0; 
+	return 0;
 }
 EXPORT_SYMBOL(user_interpreter_unwind);
 
@@ -612,96 +629,96 @@ void copy_interpreter_info(struct task_struct *c, struct task_struct *p)
 {
 	if (p->user_stack.int_trace.nr_entries) {
 		c->user_stack.int_trace = p->user_stack.int_trace;
-		memcpy(c->user_stack.int_trace.int_filename, p->user_stack.int_trace.int_filename, 
-				USER_STACK_MAX * INT_FNAME_MAX); 
+		memcpy(c->user_stack.int_trace.int_filename, p->user_stack.int_trace.int_filename,
+				USER_STACK_MAX * INT_FNAME_MAX);
 	}
 }
-EXPORT_SYMBOL(copy_interpreter_info); 
+EXPORT_SYMBOL(copy_interpreter_info);
 
-static int __init interpreter_bt_init(void) 
+static int __init interpreter_bt_init(void)
 {
-	bash_bt_info.unwind = &pft_bash_context; 
-	php_bt_info.unwind = &pft_php_context; 
+	bash_bt_info.unwind = &pft_bash_context;
+	php_bt_info.unwind = &pft_php_context;
 
-	return 0; 
+	return 0;
 }
-__initcall(interpreter_bt_init); 
+__initcall(interpreter_bt_init);
 
 /* file /sys/kernel/debug/interpreter_info */
 
 /* example: php5:26484420:0x08345b50:0x0000024c:1:g:0x08345b50 */
 int interpreter_line_load(char *data)
 {
-	char **r = &data; 
-	char *l = NULL; 
-	struct int_bt_info *int_info = NULL; 
-	int i = 0; 
+	char **r = &data;
+	char *l = NULL;
+	struct int_bt_info *int_info = NULL;
+	int i = 0;
 
-	l = strsep(r, ":"); 
+	l = strsep(r, ":");
 	if (!strcmp(l, "bash"))
-		int_info = &bash_bt_info; 
+		int_info = &bash_bt_info;
 	else if (!strcmp(l, "php5"))
-		int_info = &php_bt_info; 
+		int_info = &php_bt_info;
 	else
-		return -EINVAL; 
+		return -EINVAL;
 
-	strcpy(int_info->int_id, l); 
+	strcpy(int_info->int_id, l);
 
-	l = strsep(r, ":"); 
-	int_info->ino = simple_strtoul(l, NULL, 0); 
+	l = strsep(r, ":");
+	int_info->ino = simple_strtoul(l, NULL, 0);
 	if (!int_info->ino)
-		return -EINVAL; 
+		return -EINVAL;
 
-	l = strsep(r, ":"); 
-	int_info->loop_fn = simple_strtoul(l, NULL, 0); 
+	l = strsep(r, ":");
+	int_info->loop_fn = simple_strtoul(l, NULL, 0);
 	if (!int_info->loop_fn)
-		return -EINVAL; 
+		return -EINVAL;
 
-	l = strsep(r, ":"); 
-	int_info->size = simple_strtoul(l, NULL, 0); 
+	l = strsep(r, ":");
+	int_info->size = simple_strtoul(l, NULL, 0);
 	if (!int_info->size)
-		return -EINVAL; 
-	
-	l = strsep(r, ":"); 
-	int_info->nr_vars = simple_strtoul(l, NULL, 0); 
-	if (int_info->nr_vars <= 0)
-		return -EINVAL; 
-	
-	for (i = 0; i < int_info->nr_vars; i++) {
-		l = strsep(r, ":"); 
-		if (l[0] == 'g')
-			int_info->is_global[i] = 1; 
-		else if (l[0] == 'l')
-			int_info->is_global[i] = 0; 
-		else
-			return -EINVAL; 
+		return -EINVAL;
 
-		l = strsep(r, ":"); 
+	l = strsep(r, ":");
+	int_info->nr_vars = simple_strtoul(l, NULL, 0);
+	if (int_info->nr_vars <= 0)
+		return -EINVAL;
+
+	for (i = 0; i < int_info->nr_vars; i++) {
+		l = strsep(r, ":");
+		if (l[0] == 'g')
+			int_info->is_global[i] = 1;
+		else if (l[0] == 'l')
+			int_info->is_global[i] = 0;
+		else
+			return -EINVAL;
+
+		l = strsep(r, ":");
 		if (int_info->is_global[i]) {
-			int_info->var_info[i].global_var = simple_strtoul(l, NULL, 0); 
+			int_info->var_info[i].global_var = simple_strtoul(l, NULL, 0);
 			if (!int_info->var_info[i].global_var)
-				return -EINVAL; 
+				return -EINVAL;
 		}
 	}
-	return 0; 
+	return 0;
 }
 
 int interpreter_load(char *data, size_t len)
 {
-	char **r = &data; 
-	char *l = NULL; 
-	int ret = 0; 
+	char **r = &data;
+	char *l = NULL;
+	int ret = 0;
 
 	/* null terminate */
-	*(data + len - 1) = 0; 
+	*(data + len - 1) = 0;
 
 	/* separate into tokens */
 	while ((l = strsep(r, "\n"))) {
 		/* parse each line */
-		ret = interpreter_line_load(l); 
+		ret = interpreter_line_load(l);
 	}
 
-	return (ret == 0) ? len : ret; 
+	return (ret == 0) ? len : ret;
 }
 
 static ssize_t
@@ -725,7 +742,7 @@ interpreter_info_write(struct file *filp, const char __user *buf,
 		goto out;
 
 	length = -EINVAL;
-	length = interpreter_load(page, count); 
+	length = interpreter_load(page, count);
 
 out:
 	free_page((unsigned long) page);
@@ -749,4 +766,4 @@ static int __init interpreter_info_init(void)
 	}
 	return 0;
 }
-fs_initcall(interpreter_info_init); 
+fs_initcall(interpreter_info_init);

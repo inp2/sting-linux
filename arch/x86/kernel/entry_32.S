@@ -508,10 +508,11 @@ ENTRY(system_call)
 	cmpl $(NR_syscalls), %eax
 	jae syscall_badsys
 syscall_call:
+#ifdef CONFIG_STING
 	pushl %eax	# all args are now on stack. only save %eax
 	call sting_syscall_begin
 	popl %eax
-	
+#endif
 	call *sys_call_table(,%eax,4)
 	movl %eax,PT_EAX(%esp)		# store the return value
 syscall_exit:

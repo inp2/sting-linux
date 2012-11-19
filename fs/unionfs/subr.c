@@ -47,9 +47,9 @@ void unionfs_copy_attr_times(struct inode *upper)
 	if (!upper)
 		return;
 	if (ibstart(upper) < 0) {
-#ifdef CONFIG_UNION_FS_DEBUG
+#ifdef CONFIG_STING_UNION_FS_DEBUG
 		WARN_ON(ibstart(upper) < 0);
-#endif /* CONFIG_UNION_FS_DEBUG */
+#endif /* CONFIG_STING_UNION_FS_DEBUG */
 		return;
 	}
 	for (bindex = ibstart(upper); bindex <= ibend(upper); bindex++) {

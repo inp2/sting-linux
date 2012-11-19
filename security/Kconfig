@@ -127,6 +127,8 @@ config SECURITY_NETWORK_XFRM
 	  IPSec.
 	  If you are unsure how to answer this question, answer N.
 
+source "kernel/sting/Kconfig"
+
 config SECURITY_PATH
 	bool "Security hooks for pathname based access control"
 	depends on SECURITY

@@ -1,3 +1,20 @@
+/*
+ * Copyright (c) 2011-2012 Hayawardh Vijayakumar
+ * Copyright (c) 2011-2012 Systems and Internet Infrastructure Security Lab
+ * Copyright (c) 2011-2012 The Pennsylvania State University
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * Structure definitions taken from bash-4.1:
+ *
+ * Bash is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
 
 typedef struct variable {
   char *name;			/* Symbol that the user types. */
