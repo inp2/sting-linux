@@ -979,8 +979,8 @@ void do_exit(long code)
 	taskstats_exit(tsk, group_dead);
 
 #ifdef CONFIG_STING
-	sting_process_exit(); 
-#endif 
+	sting_process_exit();
+#endif
 
 	exit_mm(tsk);
 

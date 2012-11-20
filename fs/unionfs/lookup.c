@@ -322,14 +322,6 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	name = dentry->d_name.name;
 	namelen = dentry->d_name.len;
 
-	/* No dentries should get created for possible whiteout names. */
-#if 0
-	if (!is_validname(name)) {
-		err = -EPERM;
-		goto out_free;
-	}
-#endif
-
 	/* Now start the actual lookup procedure. */
 
 	/* get the branches we have to lookup for sting */
@@ -338,13 +330,7 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	bstart = sting_res_branch_start(ibstart(parent->d_inode));
 	bend = sting_res_branch_end(ibend(parent->d_inode));
 
-//	bopaque = (nd->flags & LOOKUP_LAST) ?
-//				sting_res_branch_start(dbopaque(parent)) : dbopaque(parent);
 	BUG_ON(bstart < 0);
-
-	/* adjust bend to bopaque if needed */
-//	if ((bopaque >= 0) && (bopaque < bend))
-//		bend = bopaque;
 
 	/* lookup all possible dentries */
 	for (bindex = bstart; bindex <= bend; bindex++) {
@@ -373,22 +359,6 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 		if (!S_ISDIR(lower_dir_dentry->d_inode->i_mode))
 			continue; /* XXX: should be BUG_ON */
 
-		/* check for whiteouts: stop lookup if found */
-		#if 0
-		wh_lower_dentry = lookup_whiteout(name, lower_dir_dentry);
-		if (IS_ERR(wh_lower_dentry)) {
-			err = PTR_ERR(wh_lower_dentry);
-			goto out_free;
-		}
-		if (wh_lower_dentry->d_inode) {
-			dbend(dentry) = dbopaque(dentry) = bindex;
-			if (dbstart(dentry) < 0)
-				dbstart(dentry) = bindex;
-			dput(wh_lower_dentry);
-			break;
-		}
-		dput(wh_lower_dentry);
-		#endif
 		/* Now do regular lookup; lookup @name */
 		lower_dir_mnt = unionfs_lower_mnt_idx(parent, bindex);
 		lower_mnt = NULL; /* XXX: needed? */
@@ -426,17 +396,7 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 		 */
 		if (!S_ISDIR(lower_dentry->d_inode->i_mode))
 			continue;
-		#if 0
-		opaque = is_opaque_dir(dentry, bindex);
-		if (opaque < 0) {
-			err = opaque;
-			goto out_free;
-		} else if (opaque) {
-			dbend(dentry) = dbopaque(dentry) = bindex;
-			break;
-		}
-		dbend(dentry) = bindex;
-		#endif
+
 		/* update parent directory's atime with the bindex */
 		fsstack_copy_attr_atime(parent->d_inode,
 					lower_dir_dentry->d_inode);
@@ -463,13 +423,6 @@ struct dentry *unionfs_lookup_full(struct dentry *dentry,
 	if (lookupmode == INTERPOSE_PARTIAL)
 		goto out;
 	if (lookupmode == INTERPOSE_LOOKUP) {
-		/*
-		 * If all we found was a whiteout in the first available
-		 * branch, then create a negative dentry for a possibly new
-		 * file to be created.
-		 */
-		// if (dbopaque(dentry) < 0)
-//			goto out;
 		/* XXX: need to get mnt here */
 		bindex = dbstart(dentry);
 		if (unionfs_lower_dentry_idx(dentry, bindex))
@@ -575,13 +528,6 @@ out:
 		BUG_ON(dbstart(d_interposed) >= 0 && dbend(d_interposed) < 0);
 	}
 
-#if 0
-	if (dbstart(dentry) == dbend(dentry) == -1) {
-		/* sting: switching to unavailable branch */
-		UNIONFS_D(dentry)->lower_paths = NULL;
-		return ERR_PTR(-ESTALE);
-	}
-#endif
 	if (!err && d_interposed)
 		return d_interposed;
 	return ERR_PTR(err);

@@ -25,11 +25,11 @@
 #define DWARF_DEBUG_LVL 0
 #define DWARF_DEBUG(cond, fmt, args...) \
 do { \
-        if (cond > DWARF_DEBUG_LVL) \
-                break; \
-	printk("[%s:%05d] ", __FUNCTION__, __LINE__); \
-        printk(fmt, ## args); \
-} while(0)
+		if (cond > DWARF_DEBUG_LVL) \
+				break; \
+		printk(KERN_DEBUG "[%s:%05d] ", __func__, __LINE__); \
+		printk(fmt, ## args); \
+} while (0)
 
 #define DWARF_CIE_VERSION	3
 #define DWARF_CIE_VERSION_GCC	1
@@ -71,11 +71,11 @@ do { \
 #define DW_EH_PE_aligned	0x50	/* aligned pointer */
 
 enum {
-        DWARF_WHERE_UNDEF,      /* register isn't saved at all */
-        DWARF_WHERE_SAME,       /* register has same value as in prev. frame */
-        DWARF_WHERE_CFAREL,     /* register saved at CFA-relative address */
-        DWARF_WHERE_REG,        /* register saved in another register */
-        DWARF_WHERE_EXPR,       /* register saved */
+	DWARF_WHERE_UNDEF,		/* register isn't saved at all */
+	DWARF_WHERE_SAME,		/* register has same value as in prev. frame */
+	DWARF_WHERE_CFAREL,		/* register saved at CFA-relative address */
+	DWARF_WHERE_REG,		/* register saved in another register */
+	DWARF_WHERE_EXPR,		/* register saved */
 };
 
 /* eh_frame unwind information */
@@ -85,10 +85,10 @@ struct unw_t {
 };
 
 struct eh_table_data {
-	dwarf_word_t table_count; 
+	dwarf_word_t table_count;
 	dwarf_word_t table_base;
-	struct table_entry* table_data;
-}; 
+	struct table_entry *table_data;
+};
 
 struct eh_frame_hdr {
 	unsigned char version;
@@ -104,18 +104,18 @@ struct dwarf_cie {
 	dwarf_word_t code_align;
 	dwarf_word_t data_align;
 	dwarf_word_t ret_addr_column;
-        uint8_t lsda_encoding;
+	uint8_t lsda_encoding;
 	uint8_t fde_encoding;
-	unsigned int sized_augmentation : 1;
+	unsigned int sized_augmentation:1;
 };
 
 struct dwarf_fde {
 	struct dwarf_cie cie;
-        dwarf_word_t start_ip;
-        dwarf_word_t end_ip;
-        dwarf_word_t fde_instr_start;
-        dwarf_word_t fde_instr_end;
-        dwarf_word_t lsda;
+	dwarf_word_t start_ip;
+	dwarf_word_t end_ip;
+	dwarf_word_t fde_instr_start;
+	dwarf_word_t fde_instr_end;
+	dwarf_word_t lsda;
 };
 
 struct dwarf_save_loc {
@@ -169,7 +169,7 @@ int dwarf_cfi_run(struct dwarf_fde *fde, struct dwarf_state *state,
 		  dwarf_word_t end_addr);
 
 int dwarf_expression(struct dwarf_regs *regs, dwarf_word_t *addr,
-		     dwarf_word_t len, dwarf_word_t *val, 
+		     dwarf_word_t len, dwarf_word_t *val,
 		unsigned long st_high, unsigned long st_low);
 
 static inline

@@ -11,8 +11,8 @@
 #include <linux/list.h>
 
 /* partly-generic hash table. clients of this must have entries as follows:
-   	struct my_entry {
-   		struct hlist_head list;
+	struct my_entry {
+		struct hlist_head list;
 		[key, value] stuff;
 	};
 */
@@ -55,11 +55,14 @@ struct dict_entry *dict_lookup(struct hlist_head *dict,
 void dict_entry_remove(struct hlist_head *dict,
 		struct dict_key *key, struct dict_fns *df);
 struct dict_entry *dict_entry_set(struct hlist_head *dict,
-		struct dict_key *key, struct dict_val *val, struct dict_fns *df);
+		struct dict_key *key, struct dict_val *val,
+		struct dict_fns *df);
 struct dict_entry *dict_reverse_lookup(struct hlist_head *dict,
-		struct dict_val *val, unsigned long dict_sz, struct dict_fns *df);
-void dict_entry_generic(struct hlist_head *dict, unsigned long dict_sz,
-		struct dict_fns *df, void *private_data,
-		void (*dict_gen_func) (struct dict_entry *e, void *private_data));
+		struct dict_val *val, unsigned long dict_sz,
+		struct dict_fns *df);
+void dict_entry_generic(struct hlist_head *dict,
+		unsigned long dict_sz, struct dict_fns *df,
+		void *private_data, void (*dict_gen_func)
+		(struct dict_entry *e, void *private_data));
 void dict_free(struct hlist_head *dict, unsigned long dict_sz,
 		struct dict_fns *df);

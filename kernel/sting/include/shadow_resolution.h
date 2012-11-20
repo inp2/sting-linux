@@ -10,9 +10,6 @@
 
 #include <linux/namei.h>
 
-// #define SHADOW_RES_DPARENT shadow_res_d_parent(&nd, sh_err)
-// #define SHADOW_RES_DCHILD shadow_res_d_child(&nd, sh_err)
-
 extern int shadow_res_init(int dfd, const char *name,
 		unsigned int flags, struct nameidata *nd);
 extern int shadow_res_advance_name(char **n, int *nptr, struct nameidata *nd);
@@ -22,6 +19,5 @@ extern int shadow_res_end(struct nameidata *nd);
 void shadow_res_get_pc_paths(struct path *parent, struct path *child,
 		struct nameidata *nd, int err);
 void shadow_res_put_pc_paths(struct path *parent, struct path *child, int err);
-// extern void path_get_parent(const struct path *child, struct path *parent);
 char *shadow_res_get_last_name(struct nameidata *nd, struct path *child);
 void shadow_res_put_lookup_path(struct nameidata *nd);

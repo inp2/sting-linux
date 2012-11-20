@@ -21,19 +21,22 @@
 
 /* sting modifications:
  * 1. disable copyup, whiteout, opaque directory.
- *		copyup needed only while launching attacks, to extend directory structure.
- * 		return error if cannot write to chosen branch, instead of unionfs copyup.
+ *		copyup needed only while launching attacks, to extend
+ *		directory structure.  return error if cannot write to chosen
+ *		branch, instead of unionfs copyup.
  * 2. if a process deletes or renames upper,
- * 		delete or rename all visible lower also (as there is no opacity or whiteout).
- * 3. revalidate parent dentries recursively if parents do not contain all
- *		branches we want (unionfs_d_revalidate_recursive)
- * 4. maintain i_nlink on directories on ls (so we see only what we should see)
- *		instead of bothering with maintaining i_nlink, simply unconditionally
- *		revalidate all directories.
+ * 		delete or rename all visible lower also (as there is no
+ * 		opacity or whiteout).
+ * 3. revalidate parent dentries recursively if parents do not contain
+ *		all branches we want (unionfs_d_revalidate_recursive)
+ * 4. maintain i_nlink on directories on ls
+ *		(so we see only what we should see)
+ *		instead of bothering with maintaining i_nlink, simply
+ *		unconditionally revalidate all directories.
  *			TODO: in creation and deletion operations, take care to update
  *			i_nlink properly, or mark parent as requiring revalidation.
- * 5. out-of-band creation needed for upper branch, because we need to only use
- *		the adversary branch on the last element for copyup.
+ * 5. out-of-band creation needed for upper branch, because we need to
+ * 		only use the adversary branch on the last element for copyup.
  */
 
 /*
@@ -70,38 +73,13 @@ begin:
 			lower_dentry = unionfs_lower_dentry_idx(dentry, bindex);
 			if (!lower_dentry)
 				continue;
-	#if 0
-			/*
-			 * check for whiteouts in writeable branch, and remove them
-			 * if necessary.
-			 */
-			err = check_unlink_whiteout(dentry, lower_dentry, bindex);
-			if (err > 0)	/* ignore if whiteout found and removed */
-				err = 0;
-	#endif
+
 			if (err)
 				continue;
 			/* if get here, we can write to the branch */
 			break;
 		}
 
-	#if 0
-		/*
-		 * If istart wasn't already branch 0, and we got any error, then try
-		 * branch 0 (which may require copyup)
-		 */
-		if (err && istart > 0) {
-			istart = iend = 0;
-			goto begin;
-		}
-
-		/*
-		 * If we tried even branch 0, and still got an error, abort.  But if
-		 * the error was an EROFS, then we should try to copyup.
-		 */
-		if (err && err != -EROFS)
-			goto out;
-	#endif
 		if (err)
 			goto out;
 	} else {
@@ -139,12 +117,6 @@ static int unionfs_create(struct inode *dir, struct dentry *dentry,
 	struct dentry *parent;
 	int valid = 0;
 	struct nameidata lower_nd;
-
-	#if 0
-	if ((vul = sting_detect(dir))) {
-		sting_log_and_rollback(dir, vul);
-	}
-	#endif
 
 	/* this reflects the more general problem of change of state
 	 * between shadow resolution and actual resolution */
@@ -218,14 +190,14 @@ static struct dentry *unionfs_lookup_parent_chain(struct dentry *dentry)
 	struct dentry *new_parent = NULL, *new_dentry = NULL;
 	struct qstr name;
 
-	// unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
 	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
 
-	/* if our parent does not have required branches, we have to revalidate the
-	 * parent and its parent and so on, until we get to a point that has what
-	 * we need. we got into this position because we changed the branch
-	 * visible, and the branch we need is not available in the parent directory,
-	 * because it itself was resolved in the different context, and so on.  */
+	/* if our parent does not have required branches, we have to
+	 * revalidate the parent and its parent and so on, until we get to
+	 * a point that has what we need. we got into this position
+	 * because we changed the branch visible, and the branch we need
+	 * is not available in the parent directory, because it itself was
+	 * resolved in the different context, and so on.  */
 
 	if ((tdbstart(parent) > sdbstart()) || (tdbend(parent) < sdbend())) {
 		unionfs_unlock_parent(dentry, parent);
@@ -237,7 +209,8 @@ static struct dentry *unionfs_lookup_parent_chain(struct dentry *dentry)
 		/* sting: even after re-lookup, if our new parent does not
 		 * have our branch, we should not proceed. it is as if
 		 * someone deleted our parent. */
-		if ((!new_parent->d_inode) || (ibstart(new_parent->d_inode) == -1)) {
+		if ((!new_parent->d_inode) ||
+				(ibstart(new_parent->d_inode) == -1)) {
 			d_drop(new_parent);
 			dput(new_parent);
 			err = -ESTALE;
@@ -254,7 +227,6 @@ static struct dentry *unionfs_lookup_parent_chain(struct dentry *dentry)
 		err = -ENOMEM;
 		goto out;
 	}
-	// dput(dentry); /* XXX: should we set parent for old dentry as well? */
 
 	dentry = new_dentry;
 
@@ -286,12 +258,10 @@ static struct dentry *unionfs_lookup_parent_chain(struct dentry *dentry)
 	if (!IS_ERR(ret))
 		unionfs_check_dentry(dentry);
 	unionfs_check_dentry(parent);
-	// unionfs_unlock_dentry(dentry); /* locked in new_dentry_private data */
 
 out:
 	unionfs_unlock_parent(dentry, parent);
 out_unlocked:
-	// unionfs_read_unlock(dentry->d_sb);
 
 	return (err < 0) ? ERR_PTR(err) : (ret ? ret : dentry);
 }
@@ -327,7 +297,8 @@ static struct dentry *unionfs_lookup(struct inode *dir,
 		/* sting: even after re-lookup, if our new parent does not
 		 * have our branch, we should not proceed. it is as if
 		 * someone deleted our parent. */
-		if ((!new_parent->d_inode) || (ibstart(new_parent->d_inode) == -1)) {
+		if ((!new_parent->d_inode) ||
+				(ibstart(new_parent->d_inode) == -1)) {
 			d_drop(new_parent);
 			dput(new_parent);
 			err = -ESTALE;
@@ -414,29 +385,12 @@ static int unionfs_link(struct dentry *old_dentry, struct inode *dir,
 
 	lower_new_dentry = unionfs_lower_dentry(new_dentry);
 
-#if 0
-	/* check for a whiteout in new dentry branch, and delete it */
-	err = check_unlink_whiteout(new_dentry, lower_new_dentry,
-				    dbstart(new_dentry));
-	if (err > 0) {	       /* whiteout found and removed successfully */
-		lower_dir_dentry = dget_parent(lower_new_dentry);
-		fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
-		dput(lower_dir_dentry);
-		set_nlink(dir, unionfs_get_nlinks(dir));
-		err = 0;
-	}
-	if (err)
-		goto out;
-#endif
-
 	/* check if parent hierachy is needed, then link in same branch */
 	if (dbstart(old_dentry) != dbstart(new_dentry)) {
 		lower_new_dentry = create_parents(dir, new_dentry,
 						  new_dentry->d_name.name,
 						  dbstart(old_dentry));
 		err = PTR_ERR(lower_new_dentry);
-		// if (IS_COPYUP_ERR(err))
-		//	goto docopyup;
 
 		if (!lower_new_dentry || IS_ERR(lower_new_dentry))
 			goto out;
@@ -456,40 +410,6 @@ static int unionfs_link(struct dentry *old_dentry, struct inode *dir,
 	}
 	unlock_dir(lower_dir_dentry);
 
-#if 0
-docopyup:
-	if (IS_COPYUP_ERR(err)) {
-		int old_bstart = dbstart(old_dentry);
-		int bindex;
-
-		for (bindex = old_bstart - 1; bindex >= 0; bindex--) {
-			err = copyup_dentry(old_parent->d_inode,
-					    old_dentry, old_bstart,
-					    bindex, old_dentry->d_name.name,
-					    old_dentry->d_name.len, NULL,
-					    i_size_read(old_dentry->d_inode));
-			if (err)
-				continue;
-			lower_new_dentry =
-				create_parents(dir, new_dentry,
-					       new_dentry->d_name.name,
-					       bindex);
-			lower_old_dentry = unionfs_lower_dentry(old_dentry);
-			lower_dir_dentry = lock_parent(lower_new_dentry);
-			/* see Documentation/filesystems/unionfs/issues.txt */
-			lockdep_off();
-			/* do vfs_link */
-			err = vfs_link(lower_old_dentry,
-				       lower_dir_dentry->d_inode,
-				       lower_new_dentry);
-			lockdep_on();
-			unlock_dir(lower_dir_dentry);
-			goto check_link;
-		}
-		goto out;
-	}
-
-#endif
 check_link:
 	if (err || !lower_new_dentry->d_inode)
 		goto out;
@@ -576,14 +496,12 @@ static int unionfs_symlink(struct inode *dir, struct dentry *dentry,
 	mode = S_IALLUGO;
 	err = vfs_symlink(lower_parent_dentry->d_inode, lower_dentry, symname);
 	if (!err) {
-		/* sting: since we can be called with a positive inode by launch attack,
-		 * deal with that case */
+		/* sting: since we can be called with a positive inode by
+		 * launch attack, deal with that case */
 		if (dentry->d_inode) {
 			/* force revalidation */
 			tdbstart(dentry) = tdbend(dentry) = -1;
-			#if 0
-			__unionfs_d_revalidate(dentry, parent, false);
-			#endif
+
 			unionfs_copy_attr_times(dir);
 			fsstack_copy_inode_size(dir,
 						lower_parent_dentry->d_inode);
@@ -645,18 +563,7 @@ static int unionfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	bstart = dbstart(dentry);
 
 	lower_dentry = unionfs_lower_dentry(dentry);
-#if 0
-	/* check for a whiteout in new dentry branch, and delete it */
-	err = check_unlink_whiteout(dentry, lower_dentry, bstart);
-	if (err > 0)	       /* whiteout found and removed successfully */
-		err = 0;
-	if (err) {
-		/* exit if the error returned was NOT -EROFS */
-		if (!IS_COPYUP_ERR(err))
-			goto out;
-		bstart--;
-	}
-#endif
+
 	/* check if copyup's needed, and mkdir */
 	/* sting: this loop is redundant, we have the specific branch when
 	 * we reach this point (bstart = bend) */
@@ -719,14 +626,7 @@ static int unionfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 			/* update number of links on parent directory */
 			set_nlink(dir, unionfs_get_nlinks(dir));
 		}
-#if 0
-		err = make_dir_opaque(dentry, dbstart(dentry));
-		if (err) {
-			printk(KERN_ERR "unionfs: mkdir: error creating "
-			       ".wh.__dir_opaque: %d\n", err);
-			goto out;
-		}
-#endif
+
 		/* we are done! */
 		break;
 	}
@@ -936,10 +836,7 @@ static void unionfs_put_link(struct dentry *dentry, struct nameidata *nd,
 		       "unionfs: put_link failed to revalidate dentry\n");
 
 	unionfs_check_dentry(dentry);
-#if 0
-	/* XXX: can't run this check b/c this fxn can receive a poisoned 'nd' PTR */
-	unionfs_check_nd(nd);
-#endif
+
 	buf = nd_get_link(nd);
 	if (!IS_ERR(buf))
 		kfree(buf);
@@ -1052,8 +949,6 @@ static int unionfs_permission(struct inode *inode, int mask)
 			     __is_rdonly(lower_inode)) &&
 			    (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
 				err = 0;
-			// if (IS_COPYUP_ERR(err))
-			//	err = 0;
 		}
 
 		/*
@@ -1153,42 +1048,14 @@ static int unionfs_setattr(struct dentry *dentry, struct iattr *ia)
 	if (is_robranch_super(dentry->d_sb, bstart)
 	    || __is_rdonly(lower_inode)) {
 		/* check if we have a branch to copy up to */
-		// if (bstart <= 0) {
-			err = -EACCES;
-			goto out;
-		// }
+		err = -EACCES;
+		goto out;
 
 		if (ia->ia_valid & ATTR_SIZE)
 			size = ia->ia_size;
 		else
 			size = i_size_read(inode);
-#if 0
-		/* copyup to next available branch */
-		for (bindex = bstart - 1; bindex >= 0; bindex--) {
-			err = copyup_dentry(parent->d_inode,
-					    dentry, bstart, bindex,
-					    dentry->d_name.name,
-					    dentry->d_name.len,
-					    NULL, size);
-			if (!err)
-				break;
-		}
-		if (err)
-			goto out;
-		/* get updated lower_dentry/inode after copyup */
-		lower_dentry = unionfs_lower_dentry(dentry);
-		lower_inode = unionfs_lower_inode(inode);
-		/*
-		 * check for whiteouts in writeable branch, and remove them
-		 * if necessary.
-		 */
-		if (lower_dentry) {
-			err = check_unlink_whiteout(dentry, lower_dentry,
-						    bindex);
-			if (err > 0) /* ignore if whiteout found and removed */
-				err = 0;
-		}
-#endif
+
 	}
 
 	/*
@@ -1219,7 +1086,7 @@ static int unionfs_setattr(struct dentry *dentry, struct iattr *ia)
 	memcpy(&lower_ia, ia, sizeof(lower_ia));
 	if (ia->ia_valid & ATTR_FILE) {
 		lower_ia.ia_file = unionfs_lower_file(ia->ia_file);
-		BUG_ON(!lower_ia.ia_file); // XXX?
+		BUG_ON(!lower_ia.ia_file); /* XXX? */
 	}
 
 	mutex_lock(&lower_dentry->d_inode->i_mutex);

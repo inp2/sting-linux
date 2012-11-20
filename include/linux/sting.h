@@ -34,7 +34,7 @@
 	do { \
 		if (STING_DBG_ON == 1) { \
 			printk(KERN_INFO STING_MSG "debug: [%s:%05d]: " s, \
-					__FUNCTION__, __LINE__, ## __VA_ARGS__); \
+					__func__, __LINE__, ## __VA_ARGS__); \
 		} \
 	} while (0)
 
@@ -42,7 +42,7 @@
 	do { \
 			if (l <= STING_ERR_LVL) { \
 				printk(KERN_INFO STING_MSG "error: [%s:%05d]: " s, \
-						__FUNCTION__, __LINE__, ## __VA_ARGS__); \
+						__func__, __LINE__, ## __VA_ARGS__); \
 			} \
 	} while (0)
 
@@ -69,7 +69,8 @@ void sting_process_exit(void);
 extern struct rchan *sting_log_rchan;
 #define STING_LOG(str, ...) { \
 	char *log_str = NULL; \
-	log_str = kasprintf(GFP_ATOMIC, "[%s:%d]: " str, __FILE__, __LINE__, ##__VA_ARGS__); \
+	log_str = kasprintf(GFP_ATOMIC, "[%s:%d]: " str, \
+			__FILE__, __LINE__, ##__VA_ARGS__); \
 	if (log_str) { \
 		current->sting_request++; \
 		relay_write(sting_log_rchan, log_str, strlen(log_str)); \
@@ -79,11 +80,15 @@ extern struct rchan *sting_log_rchan;
 }
 
 #define STING_LOG_STING_DETAILS(m, str) { \
-	STING_LOG(str ": entrypoint: [%s:%lx:%s,%lu], resource: [%s], system call: [%d]" \
-		"attack_type: [%s], adversary uid: [%d], victim uid: [%d]\n", \
-		m->comm, m->offset, (m->int_filename ? m->int_filename : "(null)"), \
-		m->int_lineno, m->pathname, syscall_get_nr(current, task_pt_regs(current)), \
-		sting_attack_to_str(m->attack_type), uid_array[m->adv_uid_ind][0], \
+	STING_LOG(str ": entrypoint: [%s:%lx:%s,%lu], resource: [%s], " \
+				"system call: [%d], attack_type: [%s], \
+				"adversary uid: [%d], victim uid: [%d]\n", \
+		m->comm, m->offset, (m->int_filename ? \
+			m->int_filename : "(null)"), \
+		m->int_lineno, m->pathname, \
+		syscall_get_nr(current, task_pt_regs(current)), \
+		sting_attack_to_str(m->attack_type), \
+		uid_array[m->adv_uid_ind][0], \
 		m->victim_uid); \
 }
 
@@ -123,10 +128,9 @@ struct sting {
 	int adv_uid_ind; /* TODO: mac */
 };
 
-#define MATCH_PID 		0x1
-#define MATCH_EPT 		0x2
-// #define MATCH_DENTRY 	0x4
-#define MATCH_INO		0x8
+#define MATCH_PID	0x1
+#define MATCH_EPT	0x2
+#define MATCH_INO	0x8
 
 // extern void sting_list_add(struct sting *st);
 // extern void sting_list_del(struct sting *st);
@@ -141,8 +145,10 @@ struct int_bt_info *on_script_behalf(struct user_stack_info *us);
 #define VMA_INO(vma) (vma->vm_file->f_dentry->d_inode->i_ino)
 #define EXE_INO(t) (t->mm->exe_file->f_dentry->d_inode->i_ino)
 
-#define EPT_VMA_OFFSET(addr, us) ((addr) + (us->trace.vma_start[us->trace.ept_ind]))
-#define EPT_INO(t) (t->user_stack.trace.vma_inoden[t->user_stack.trace.ept_ind])
+#define EPT_VMA_OFFSET(addr, us) \
+			((addr) + (us->trace.vma_start[us->trace.ept_ind]))
+#define EPT_INO(t) \
+			(t->user_stack.trace.vma_inoden[t->user_stack.trace.ept_ind])
 
 /* TODO: Below three functions should be in user_unwind.h */
 
@@ -251,62 +257,58 @@ static inline int sting_get_res_intent(struct task_struct *t)
 /* given lowest possible start */
 static inline int sting_res_branch_start(int cstart)
 {
-	switch(sting_get_res_type(current)) {
-		case ADV_RES:
-//			BUG_ON(STING_ADV_BID < cstart);
-			return STING_ADV_BID;
-		case ADV_NORMAL_RES:
-			return (STING_ADV_BID < cstart) ? cstart : STING_ADV_BID;
-		case NA_RES:
-		case NORMAL_RES:
-//			BUG_ON(STING_NON_ADV_BID < cstart);
-			return STING_NON_ADV_BID;
-		default:
-			BUG_ON(1);
+	switch (sting_get_res_type(current)) {
+	case ADV_RES:
+		return STING_ADV_BID;
+	case ADV_NORMAL_RES:
+		return (STING_ADV_BID < cstart) ? cstart : STING_ADV_BID;
+	case NA_RES:
+	case NORMAL_RES:
+		return STING_NON_ADV_BID;
+	default:
+		BUG_ON(1);
 	}
 }
 
 /* given highest possible end */
 static inline int sting_res_branch_end(int cend)
 {
-	switch(sting_get_res_type(current)) {
-		case ADV_RES:
-//			BUG_ON(STING_ADV_BID > cend);
-			return STING_ADV_BID;
-		case ADV_NORMAL_RES:
-			return (STING_NON_ADV_BID > cend) ? cend : STING_NON_ADV_BID;
-		case NA_RES:
-		case NORMAL_RES:
-//			BUG_ON(STING_NON_ADV_BID > cend);
-			return STING_NON_ADV_BID;
-		default:
-			BUG_ON(1);
+	switch (sting_get_res_type(current)) {
+	case ADV_RES:
+		return STING_ADV_BID;
+	case ADV_NORMAL_RES:
+		return (STING_NON_ADV_BID > cend) ? cend : STING_NON_ADV_BID;
+	case NA_RES:
+	case NORMAL_RES:
+		return STING_NON_ADV_BID;
+	default:
+		BUG_ON(1);
 	}
 }
 
 static inline int sdbstart(void)
 {
 	switch (sting_get_res_type(current)) {
-		case ADV_RES:
-		case ADV_NORMAL_RES:
-			return STING_ADV_BID;
-		case NORMAL_RES:
-			return STING_NON_ADV_BID;
-		default:
-			BUG_ON(1);
+	case ADV_RES:
+	case ADV_NORMAL_RES:
+		return STING_ADV_BID;
+	case NORMAL_RES:
+		return STING_NON_ADV_BID;
+	default:
+		BUG_ON(1);
 	}
 }
 
 static inline int sdbend(void)
 {
 	switch (sting_get_res_type(current)) {
-		case ADV_RES:
-			return STING_ADV_BID;
-		case ADV_NORMAL_RES:
-		case NORMAL_RES:
-			return STING_NON_ADV_BID;
-		default:
-			BUG_ON(1);
+	case ADV_RES:
+		return STING_ADV_BID;
+	case ADV_NORMAL_RES:
+	case NORMAL_RES:
+		return STING_NON_ADV_BID;
+	default:
+		BUG_ON(1);
 	}
 }
 #else

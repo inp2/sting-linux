@@ -10,7 +10,7 @@
 
 #ifndef _STING_SYSCALLS_H
 #define _STING_SYSCALLS_H
-#include <asm/unistd.h>
+#include <linux/unistd.h>
 #include <linux/ptrace.h>
 #include <linux/fcntl.h>
 #include <linux/net.h>
@@ -56,7 +56,7 @@ static int use_set[] = {
 	/* __NR_open, 2nd - ~O_CREAT */
 	/* __NR_unlink, */
 	/* __NR_execve, */
-	// __NR_chdir,
+	/* __NR_chdir, */
 	__NR_chmod,
 	__NR_mount,
 	__NR_utime,
@@ -70,10 +70,10 @@ static int use_set[] = {
 	__NR_mount,
 	__NR_setxattr,
 	__NR_lsetxattr,
-	// __NR_getxattr,
-	// __NR_lgetxattr,
-	// __NR_listxattr,
-	// __NR_llistxattr,
+	/* __NR_getxattr, */
+	/* __NR_lgetxattr, */
+	/* __NR_listxattr, */
+	/* __NR_llistxattr, */
 	__NR_removexattr,
 	__NR_lremovexattr,
 	__NR_utimes,
@@ -88,8 +88,10 @@ static int use_set[] = {
 	-1
 };
 
-/* These system calls won't follow the last component if it is a symlink, or will act on the link itself.
-   If in this set, LOOKUP_FOLLOW should not be set for the name resolution */
+/* These system calls won't follow the last component if it is a
+ * symlink, or will act on the link itself.
+ * If in this set, LOOKUP_FOLLOW should not be set for the name
+ * resolution */
 static int nosym_set[] = {
 	/* __NR_open 2nd - O_NOFOLLOW */
 	/* __NR_openat 3rd - O_NOFOLLOW */
@@ -136,7 +138,7 @@ static int first_arg_set[] = {
 	__NR_link,
 	/* __NR_unlink, */
 	/* __NR_execve, */
-	// __NR_chdir,
+	/* __NR_chdir, */
 	__NR_mknod,
 	__NR_chmod,
 	__NR_mount,
@@ -239,10 +241,10 @@ static inline int in_spcs_use_set(struct pt_regs *ptregs)
 	int sn = ptregs->orig_ax;
 
 	if (sn == __NR_open) {
-		if (((int) ptregs->cx) & (O_CREAT)) // | O_DIRECTORY))
+		if (((int) ptregs->cx) & (O_CREAT))
 			return 0;
 	} else if (sn == __NR_openat) {
-		if (((int) ptregs->dx) & (O_CREAT)) // | O_DIRECTORY))
+		if (((int) ptregs->dx) & (O_CREAT))
 			return 0;
 	} else if (!connect_call(sn)) {
 		return 0;
@@ -256,11 +258,12 @@ static inline int in_spcs_nosym_set(struct pt_regs *ptregs)
 	int sn = ptregs->orig_ax;
 
 	if (((sn == __NR_open) && (!(((int) ptregs->cx) & O_NOFOLLOW))) ||
-		((sn == __NR_openat) && (((int) ptregs->dx) & O_NOFOLLOW)) ||
-		((sn == __NR_utimensat) && (((int) ptregs->si) & AT_SYMLINK_NOFOLLOW)) ||
-		((sn == __NR_linkat) && (((int) ptregs->di) & AT_SYMLINK_NOFOLLOW)) ||
-		((sn == __NR_name_to_handle_at) && (!(((int) ptregs->di) & AT_SYMLINK_FOLLOW))) ||
-		bind_call(sn))
+	    ((sn == __NR_openat) && (((int) ptregs->dx) & O_NOFOLLOW)) ||
+	    ((sn == __NR_utimensat) && (((int) ptregs->si) & AT_SYMLINK_NOFOLLOW)) ||
+	    ((sn == __NR_linkat) && (((int) ptregs->di) & AT_SYMLINK_NOFOLLOW)) ||
+		((sn == __NR_name_to_handle_at) && (!(((int) ptregs->di) &
+				AT_SYMLINK_FOLLOW))) ||
+	    bind_call(sn))
 		return 1;
 
 	return 0;

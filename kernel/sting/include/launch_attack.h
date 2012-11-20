@@ -40,7 +40,6 @@ static inline char *sting_attack_to_str(int attack_type)
 
 int sting_launch_attack(char *fname, struct path *parent,
 		int a_ind, int attack_type, struct sting *st);
-// int check_already_attacked(char __user *filename, int follow);
 
 static inline int sting_attack_checked(int attack_history, int attack_type)
 {

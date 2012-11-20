@@ -371,7 +371,8 @@ extern void release_lower_nd(struct nameidata *nd, int err);
  */
 
 /* recursively revalidate parent dentries */
-extern int unionfs_d_revalidate_recursive(struct dentry *dentry, struct dentry *parent);
+extern int unionfs_d_revalidate_recursive(struct dentry *dentry,
+		struct dentry *parent);
 
 /* replicates the directory structure up to given dentry in given branch */
 extern struct dentry *create_parents(struct inode *dir, struct dentry *dentry,

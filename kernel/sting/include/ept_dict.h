@@ -19,8 +19,7 @@ struct ept_dict_key {
 	unsigned long int_lineno;
 };
 
-struct adv_model
-{
+struct adv_model {
 	 /* below information is only useful if we insert
 	  * entrypoints into dictionary independent of
 	  * adversary access.  otherwise, all inserted
@@ -61,8 +60,10 @@ struct ept_dict_entry {
 struct ept_dict_entry *ept_dict_lookup(struct ept_dict_key *key);
 void ept_dict_entry_remove(struct ept_dict_key *key);
 void ept_dict_free(void);
-struct ept_dict_entry *ept_dict_entry_set(struct ept_dict_key *key, struct ept_dict_val *val);
-struct ept_dict_entry *ept_dict_reverse_lookup(struct ept_dict_val *val);
+struct ept_dict_entry *ept_dict_entry_set(struct ept_dict_key *key,
+		struct ept_dict_val *val);
+struct ept_dict_entry *ept_dict_reverse_lookup(
+		struct ept_dict_val *val);
 void ept_dict_entries(int *nadv, int *ntot);
 int ept_dict_populate(void *buf, int sz);
 

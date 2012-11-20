@@ -89,7 +89,7 @@ char *get_last(char *filename)
  * @type: %SYMLINK/HARDLINK
  */
 
-char *get_existing_target_file(char *filename, char *fname, uid_t uid)// , int type)
+char *get_existing_target_file(char *filename, char *fname, uid_t uid)
 {
 	char uid_str[6];
 	sprintf(uid_str, "%d", uid);
@@ -97,8 +97,9 @@ char *get_existing_target_file(char *filename, char *fname, uid_t uid)// , int t
 	strcat(fname, uid_str);
 	strcat(fname, ATTACK_EXISTING_FILE_PREFIX);
 	strcat(fname, "_");
-	// strcat(fname, (type == SYMLINK) ? SYMLINK_FILE_INFIX : HARDLINK_FILE_INFIX);
-	// strcat(fname, "_");
+	/* strcat(fname, (type == SYMLINK) ?
+		SYMLINK_FILE_INFIX : HARDLINK_FILE_INFIX); */
+	/* strcat(fname, "_"); */
 	strcat(fname, get_last(filename));
 
 	return fname;
@@ -216,60 +217,6 @@ out:
 }
 EXPORT_SYMBOL(sting_already_launched);
 
-#if 0
-int check_already_attacked(char __user *filename, int follow)
-{
-	int tret = 1; /* Not marked */
-	char *xattr_list = NULL;
-	size_t size = 0;
-	char *ptr = NULL;
-	mm_segment_t old_fs = get_fs();
-
-	if (!follow) {
-		STING_SYSCALL(size = sys_llistxattr(filename, xattr_list, 0));
-		if (((int) size) < 0)
-			goto out;
-		xattr_list = kzalloc(size, GFP_ATOMIC);
-		if (!xattr_list)
-			goto out;
-		STING_SYSCALL(tret = sys_llistxattr(filename, xattr_list, size));
-	} else {
-		STING_SYSCALL(size = sys_listxattr(filename, xattr_list, 0));
-		if (((int) size) < 0) {
-			/* Some error */
-			goto out;
-		}
-		xattr_list = kzalloc(size, GFP_ATOMIC);
-		if (!xattr_list) {
-			goto out;
-		}
-		STING_SYSCALL(tret = sys_listxattr(filename, xattr_list, size));
-	}
-	if (tret == -ENOTSUPP) {
-		printk(KERN_INFO STING_MSG "Xattrs not supported!\n");
-		goto out;
-	} else if (tret < 0)
-		goto out;
-	ptr = xattr_list;
-	tret = 1; /* Not marked */
-	while (ptr < xattr_list + size) {
-		if (!ptr) /* In between keys - shouldn't happen! */
-			continue;
-		if (!strcmp(ptr, ATTACKER_XATTR_STRING)) {
-			tret = 0;
-			break;
-		} else /* Jump to next key */
-			ptr += strlen(ptr) + 1;
-	}
-
-out:
-	if (xattr_list)
-		kfree(xattr_list);
-	return tret;
-}
-EXPORT_SYMBOL(check_already_attacked);
-#endif
-
 int set_attacked(char __user *filename, int follow)
 {
 	int tret = 0;
@@ -282,9 +229,15 @@ int set_attacked(char __user *filename, int follow)
 
 	/* TODO: The maximum length possible is XATTR_LIST_MAX */
 	if (!follow) {
-		STING_SYSCALL(tret = sys_lsetxattr(filename, ATTACKER_XATTR_STRING, ATTACKER_XATTR_VALUE, sizeof(ATTACKER_XATTR_VALUE), 0));
+		STING_SYSCALL(tret = sys_lsetxattr(filename,
+					ATTACKER_XATTR_STRING,
+					ATTACKER_XATTR_VALUE,
+					sizeof(ATTACKER_XATTR_VALUE), 0));
 	} else {
-		STING_SYSCALL(tret = sys_setxattr(filename, ATTACKER_XATTR_STRING, ATTACKER_XATTR_VALUE, sizeof(ATTACKER_XATTR_VALUE), 0));
+		STING_SYSCALL(tret = sys_setxattr(filename,
+					ATTACKER_XATTR_STRING,
+					ATTACKER_XATTR_VALUE,
+					sizeof(ATTACKER_XATTR_VALUE), 0));
 	}
 	if (tret == -ENOTSUPP) {
 		printk(KERN_INFO STING_MSG "Xattrs not supported!\n");
@@ -356,7 +309,8 @@ static inline void fsnotify_create(struct inode *inode, struct dentry *dentry)
 {
 	audit_inode_child(dentry, inode);
 
-	fsnotify(inode, FS_CREATE, dentry->d_inode, FSNOTIFY_EVENT_INODE, dentry->d_name.name, 0);
+	fsnotify(inode, FS_CREATE, dentry->d_inode, FSNOTIFY_EVENT_INODE,
+			dentry->d_name.name, 0);
 }
 
 /*
@@ -486,10 +440,12 @@ int file_create(char __user *fname, struct path* parent,
 		if (ret == -EEXIST)
 			ret = 0;
 		if (ret < 0) {
-			printk(KERN_INFO STING_MSG "Can't create file/dir %s: %d?\n", fname, ret);
+			printk(KERN_INFO STING_MSG "Can't create file/dir %s:
+					%d?\n", fname, ret);
 		}
 		/* goto mark; */
-	} else if ((reason == REASON_SQUAT) || (reason == REASON_TOCTTOU_RUNTIME)) {
+	} else if ((reason == REASON_SQUAT) || (reason ==
+				REASON_TOCTTOU_RUNTIME)) {
 		/* Change creds to attacker's */
 		old_cred = set_creds(uid_array[att_uid_ind]);
 		sting_set_res_type(current, ADV_RES);
@@ -517,9 +473,14 @@ int file_create(char __user *fname, struct path* parent,
 				STING_SYSCALL(ret = sys_unlink(fname));
 				if (ret < 0) {
 					if (ret == -ENOENT)
-						printk(KERN_INFO STING_MSG "File found but not for delete?!\n");
+						printk(KERN_INFO STING_MSG
+							"File found but "
+							"not for "
+							"delete?!\n");
 					else if (ret == -EACCES)
-						printk(KERN_INFO "attacker: att_uid_ind not working!\n");
+						printk(KERN_INFO "attacker: "
+							"att_uid_ind not "
+							"working!\n");
 					goto restore;
 				} else {
 				STING_LOG("Delete SUCCESS for squat: %s, proc "
@@ -883,22 +844,6 @@ out:
 	return ret;
 }
 
-int should_skip(char __user *filename)
-{
-	if (!filename)
-		return 0;
-	if (!strncmp(filename, "/tmp/", 5))
-		return 1;
-//	if (!strcmp(current->comm, "tempfile") ||
-//		(!strcmp(current->comm, "postdrop")) || (!strncmp(filename, "file", 4))) {
-//	(!strncmp(filename, "/tmp/", 5) && !strncmp(filename, "file", 4))) { // && !(hack_ctr++ % 8)) {
-//		printk(KERN_INFO STING_MSG "Allowing: %s: %s\n", filename, current->comm);
-//		return 1;
-//	}
-	return 0;
-}
-
-
 static int get_attacked_path(char *fname, struct path *path)
 {
 	int err = 0;
@@ -936,11 +881,13 @@ void temp_restore_cwd(struct path *old)
 
 /**
  * sting_launch_attack() - Launch attack
- * @fname:			Resource name (last component) relative to @parent
- * @parent:			Parent path
- * @a_ind:			Identity of attacker (index in uid_array)
+ * @fname:		Resource name (last component) relative to @parent
+ * @parent:		Parent path
+ * @a_ind:		Identity of attacker (index in uid_array)
  * @attack_type:	%SYMLINK, %HARDLINK, %SQUAT
- * @sting:			struct sting (whose path and target_path are filled in)
+ * @sting:		struct sting (whose path and target_path are filled in)
+ *
+ * TODO: can we pawn this off to userspace without too much pain?
  */
 
 int sting_launch_attack(char *source, struct path *parent,
@@ -961,7 +908,6 @@ int sting_launch_attack(char *source, struct path *parent,
 	if (!target)
 		return -ENOMEM;
 
-
 	/* chdir to parent */
 	temp_switch_cwd(parent, &old_cwd);
 
@@ -976,7 +922,8 @@ int sting_launch_attack(char *source, struct path *parent,
 			) {
 				/* Symlink to non-existent file */
 				get_new_target_file(source, target, uid);
-				tret = symlink_create(source, target, parent, CREATE_FILE_NONEXISTENT, sn,
+				tret = symlink_create(source, target, parent,
+						CREATE_FILE_NONEXISTENT, sn,
 						a_ind);
 			} else {
 				/* Symlink to existing file of right type -
@@ -986,11 +933,18 @@ int sting_launch_attack(char *source, struct path *parent,
 				   new files */
 				/* TODO: Other types */
 				if (sn == __NR_mkdir || sn == __NR_mkdirat) {
-					get_existing_target_dir(source, target, uid);
-					tret = symlink_create(source, target, parent, CREATE_DIR, sn, a_ind);
+					get_existing_target_dir(source, target,
+							uid);
+					tret = symlink_create(source, target,
+							parent, CREATE_DIR, sn,
+							a_ind);
 				} else {
-					get_existing_target_file(source, target, uid);
-					tret = symlink_create(source, target, parent, CREATE_FILE_EXISTENT, sn,
+					get_existing_target_file(source,
+							target, uid);
+					tret = symlink_create(source, target,
+							parent,
+							CREATE_FILE_EXISTENT,
+							sn,
 							a_ind);
 				}
 			}
@@ -999,30 +953,42 @@ int sting_launch_attack(char *source, struct path *parent,
 			/* Doesn't make sense for sockets */
 			if (sn == __NR_chdir) {
 				get_existing_target_dir(source, target, uid);
-				tret = symlink_create(source, target, parent, CREATE_DIR, sn, a_ind);
+				tret = symlink_create(source, target, parent,
+						CREATE_DIR, sn, a_ind);
 			} else {
 				get_existing_target_file(source, target, uid);
-				tret = symlink_create(source, target, parent, CREATE_FILE_EXISTENT, sn, a_ind);
+				tret = symlink_create(source, target, parent,
+						CREATE_FILE_EXISTENT, sn,
+						a_ind);
 			}
 		}
 		break;
 	case SQUAT:
-		/* Program may check for link, but may not check permissions or
-		 return value EEXIST */
 		if (in_set(sn, create_set) || bind_call(sn)) {
 			if (sn == __NR_mkdir || sn == __NR_mkdirat)
-				tret = file_create(source, parent, REASON_SQUAT, T_DIR, sn, a_ind);
+				tret = file_create(source, parent,
+						REASON_SQUAT, T_DIR, sn,
+						a_ind);
 			else if (sn == __NR_socketcall) /* bind */
-				tret = file_create(source, parent, REASON_SQUAT, T_SOCK, sn, a_ind);
+				tret = file_create(source, parent,
+						REASON_SQUAT, T_SOCK, sn,
+						a_ind);
 			else
-				tret = file_create(source, parent, REASON_SQUAT, T_REG, sn, a_ind);
+				tret = file_create(source, parent,
+						REASON_SQUAT, T_REG, sn,
+						a_ind);
 		} else if (in_set(sn, use_set) || connect_call(sn)) {
 			if (sn == __NR_chdir); /* HACK */
-				// tret = file_create(source, parent, REASON_SQUAT, T_DIR, sn, a_ind);
+				// tret = file_create(source, parent,
+				// REASON_SQUAT, T_DIR, sn, a_ind);
 			else if (sn == __NR_socketcall) /* connect */
-				tret = file_create(source, parent, REASON_SQUAT, T_SOCK, sn, a_ind);
+				tret = file_create(source, parent,
+						REASON_SQUAT, T_SOCK, sn,
+						a_ind);
 			else
-				tret = file_create(source, parent, REASON_SQUAT, T_REG, sn, a_ind);
+				tret = file_create(source, parent,
+						REASON_SQUAT, T_REG, sn,
+						a_ind);
 		}
 		break;
 	case HARDLINK:
@@ -1031,24 +997,29 @@ int sting_launch_attack(char *source, struct path *parent,
 		in_set(sn, use_set) || connect_call(sn)) {
 			/* TODO: Other types */
 			if (sn == __NR_chdir)  {
-				/* OS limitation: Can't create hardlink to directory */
+				/* OS limitation: Can't create hardlink to
+				 * directory */
 				;
 			} else if (sn == __NR_socketcall && bind_call(sn)) {
 				/* connect to a hardlink to a socket */
-				/* connecting program may check for symlink but not owner */
+				/* connecting program may check for symlink but
+				 * not owner */
 				/* Does this add anything apart from IPC squat?
-				   We could hardlink to a root-owned socket and get around
-				   owner restriction during connect, but this requires knowledge
-				   during stat() that file checked is supposed to be socket, so
-				   we can create the hardlink then.
+				   We could hardlink to a root-owned socket and
+				   get around owner restriction during connect,
+				   but this requires knowledge during stat()
+				   that file checked is supposed to be socket,
+				   so we can create the hardlink then.
 				   Currently no such knowledge is tracked. */
 
 				/* High -> low redirection */
 				get_existing_target_file(source, target, uid);
-				tret = hardlink_create(source, target, parent, T_SOCK, sn, a_ind);
+				tret = hardlink_create(source, target, parent,
+						T_SOCK, sn, a_ind);
 			} else {
 				get_existing_target_file(source, target, uid);
-				tret = hardlink_create(source, target, parent, T_REG, sn, a_ind);
+				tret = hardlink_create(source, target, parent,
+						T_REG, sn, a_ind);
 			}
 		}
 		break;
@@ -1061,31 +1032,37 @@ int sting_launch_attack(char *source, struct path *parent,
 	if (rt->check_find) {
 		if (in_set(sn, check_set)) {
 			/* TODO: Run with both is_dir = 1 and 0 */
-			file_create(source, REASON_TOCTTOU_RUNTIME, T_REG, sn, a_ind);
+			file_create(source, REASON_TOCTTOU_RUNTIME,
+					T_REG, sn, a_ind);
 		}
 	}
 	#endif
-// out_eexist:
 
 	/* get changed path (we do it in caller itself) */
 	if (tret == 0) {
 		int r;
 		sting_set_res_type(current, ADV_NORMAL_RES);
 		/* get reference to launched attack's dentry */
-		/* TODO: reduce the number of name resolutions by using vfs directly
-		 * and filling in the following inside symlink/hardlink/file create */
+		/* TODO: reduce the number of name resolutions by using vfs
+		 * directly and filling in the following inside
+		 * symlink/hardlink/file create */
 		/* path_put for these paths are done by caller */
 		r = kern_path(source, 0, &sting->path);
 		if (r < 0) {
-			STING_ERR(0, "Error getting dentry of launched attack: [%s]\n", source);
+			STING_ERR(0,
+				"Error getting dentry of "
+				"launched attack: [%s]\n", source);
 			tret = r;
 		}
 
 		if (attack_type & (SYMLINK | HARDLINK)) {
-			sting->target_path.dentry = sting->target_path.mnt = NULL;
+			sting->target_path.dentry = NULL;
+			sting->target_path.mnt = NULL;
 			r = kern_path(target, 0, &sting->target_path);
 			if (r < 0 && r != -ENOENT) {
-				STING_ERR(0, "Error getting dentry of launched attack's target: [%s]\n", source);
+				STING_ERR(0,
+					"Error getting dentry of launched "
+					"attack's target: [%s]\n", source);
 				tret = r;
 			}
 		}

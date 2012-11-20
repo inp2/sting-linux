@@ -91,8 +91,6 @@ static inline int dentry_lookup_change(struct dentry *dentry)
 
 	/* re-validate directories so they get correct nlink --
 	   see TODO in unionfs/inode.c */
-//	if (S_ISDIR(dentry->d_inode->i_mode))
-//		return true;
 
 	tbstart = tdbstart(dentry);
 	tbend = tdbend(dentry);
@@ -115,7 +113,8 @@ static inline int dentry_lookup_change(struct dentry *dentry)
 
 	if (within(tbstart, tbend, sbstart, sbend)) {
 		/* we need to expand */
-		/* this happens only if previously contracted hopefully, this should not happen too often */
+		/* this happens only if previously contracted;
+		 * hopefully, this should not happen too often */
 		return true;
 	}
 
@@ -154,8 +153,9 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 		/* root dentry is always valid */
 		/* sting: as root dentry never gets shrunk/expanded, an open()
 		 * followed by getdents() on the root might return resources
-		 * from higher branches when lower ones should be shown.  However,
-		 * operations on the resources themselves will be correct */
+		 * from higher branches when lower ones should be shown.
+		 * However, operations on the resources themselves
+		 * will be correct */
 		if (IS_ROOT(dentry)) {
 			unionfs_copy_attr_times(dentry->d_inode);
 		} else {
@@ -182,7 +182,7 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 	}
 
 	/* if our dentry is valid, then validate all lower ones */
-	if ((sbgen == dgen)) // && !dentry_lookup_change(dentry))
+	if (sbgen == dgen)
 		goto validate_lowers;
 
 	/* The root entry should always be valid */
@@ -200,7 +200,6 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 		iput_lowers_all(dentry->d_inode, true);
 	}
 
-// sting: iput(inode);
 	if (realloc_dentry_private_data(dentry) != 0) {
 		valid = false;
 		goto out;
@@ -228,7 +227,6 @@ bool __unionfs_d_revalidate(struct dentry *dentry, struct dentry *parent,
 		 * recursive revalidate) */
 		tdbstart(dentry) = tdbend(dentry) =
 			dbstart(dentry) = dbend(dentry) = -1;
-		// iput(dentry->d_inode);
 		make_bad_inode(dentry->d_inode);
 		d_drop(dentry);
 		valid = false;
@@ -383,106 +381,6 @@ bool is_newer_lower(const struct dentry *dentry)
 	return false;		/* default: lower is not newer */
 }
 
-#if 0
-int unionfs_d_revalidate_recursive(struct dentry *dentry,
-				struct dentry *parent)
-{
-	bool valid = true;
-	int err = 1;		/* 1 means valid for the VFS */
-	struct dentry *gparent;
-
-	/* both us and our parent are locked (as also the superblock) */
-	if (IS_ROOT(parent))
-		goto validate_ourselves;
-
-	if ((tdbstart(parent) > sdbstart()) ||
-			tdbend(parent) < sdbend()) {
-		/* parent needs to be revalidated. we cannot lock
-		 * grandparent -- if someone else holds grandparent lock,
-		 * we would cause a deadlock as we are locking in an order
-		 * contrary to the VFS (we are doing child -> parent locking,
-		 * whereas VFS does parent -> child locking). */
-		gparent = unionfs_lock_parent(parent, UNIONFS_DMUTEX_PARENT);
-		valid = unionfs_d_revalidate_recursive(parent, gparent);
-		/* sting: even after revalidation, if our
-		 * parent does not
-		 * have our branch, we are invalid */
-		if (!parent->d_inode ||
-				ibstart(parent->d_inode) == -1) {
-			/* lookup returns -ESTALE when this
-			 * dentry is looked up */
-			valid = false;
-		}
-		unionfs_unlock_parent(parent, gparent);
-	}
-
-validate_ourselves:
-	if (valid)
-		valid = __unionfs_d_revalidate(dentry, parent, false);
-	if (valid) {
- 		if (!d_deleted(dentry)) {
-			unionfs_postcopyup_setmnt(dentry);
-			unionfs_check_dentry(dentry);
-		}
-	} else {
-		d_drop(dentry);
-		err = valid;
-	}
-
-	return err;
-}
-
-/* difference from normal revalidate: do NOT unlock the dentry
- * we revalidate, because when we return, that dentry will be
- * used. we do not want to unlock and get invalidated in the
- * time in-between. this function is called with dentry unlocked
- * but superblock read-locked.
- * it returns with dentry locked (if successfully revalidated). */
-static int unionfs_d_revalidate_parent_chain(struct dentry *dentry,
-				struct nameidata *nd)
-{
-	bool valid = true;
-	int err = 1;		/* 1 means valid for the VFS */
-	struct dentry *parent;
-
-	if (nd && nd->flags & LOOKUP_RCU)
-		return -ECHILD;
-
-	/* validate parent as necessry */
-	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
-	if ((tdbstart(parent) > sdbstart()) ||
-			tdbend(parent) < sdbend()) {
-		unionfs_unlock_parent(dentry, parent);
-		valid = unionfs_d_revalidate(parent, nd);
-		if (!valid)
-			goto out;
-	}
-
-	// unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
-	// parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
-	unionfs_lock_dentry(dentry, UNIONFS_DMUTEX_CHILD);
-
-	if (valid)
-		valid = __unionfs_d_revalidate(dentry, parent, false);
-	if (valid) {
- 		if (!d_deleted(dentry)) {
-			unionfs_postcopyup_setmnt(dentry);
-			unionfs_check_dentry(dentry);
-		}
-	} else {
-		d_drop(dentry);
-	}
-
-	if (!valid)
-		unionfs_unlock_dentry(dentry);
-	unionfs_unlock_parent(dentry, parent);
-	// unionfs_read_unlock(dentry->d_sb);
-
-out:
-	return valid;
-}
-#endif
-
 static int unionfs_d_revalidate(struct dentry *dentry,
 				struct nameidata *nd)
 {
@@ -494,34 +392,27 @@ static int unionfs_d_revalidate(struct dentry *dentry,
 
 	unionfs_read_lock(dentry->d_sb, UNIONFS_SMUTEX_CHILD);
 
-	/* if our parent does not have required branches, we have to revalidate the
-	 * parent and its parent and so on, until we get to a point that has what
-	 * we need. we got into this position because we changed the branch
-	 * visible, and the branch we need is not available in the parent directory,
-	 * because it itself was resolved in the different context, and so on.  */
+	/* if our parent does not have required branches, we have to
+	 * revalidate the parent and its parent and so on, until we get to
+	 * a point that has what we need. we got into this position
+	 * because we changed the branch visible, and the branch we need
+	 * is not available in the parent directory, because it itself was
+	 * resolved in the different context, and so on.  */
+
 	parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
-#if 0
-	if ((tdbstart(parent) > sdbstart()) ||
-			tdbend(parent) < sdbend()) {
-		unionfs_unlock_parent(dentry, parent);
-		valid = unionfs_d_revalidate_parent_chain(parent, nd);
-		if (!valid)
-			goto out;
-	}
-#endif
+
 	/* parent locked and valid */
-	// parent = unionfs_lock_parent(dentry, UNIONFS_DMUTEX_PARENT);
 	unionfs_lock_dentry(dentry, UNIONFS_DMUTEX_CHILD);
 
 	valid = __unionfs_d_revalidate(dentry, parent, false);
+
 	if (valid) {
- 		// if (!d_deleted(dentry)) {
 			unionfs_postcopyup_setmnt(dentry);
 			unionfs_check_dentry(dentry);
-		// }
 	} else {
 		d_drop(dentry);
 	}
+
 	unionfs_unlock_dentry(dentry);
 	unionfs_unlock_parent(dentry, parent);
 	unionfs_read_unlock(dentry->d_sb);

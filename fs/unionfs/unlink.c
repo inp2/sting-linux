@@ -112,33 +112,9 @@ static int ___unionfs_unlink(struct inode *dir, struct dentry *dentry,
 		}
 	}
 
-#if 0
-	/*
-	 * Create the whiteout in branch 0 (highest priority) only if (a)
-	 * there was an error in any intermediate branch other than branch 0
-	 * due to failure of vfs_unlink/vfs_rmdir or (b) a branch marked or
-	 * mounted read-only.
-	 */
-	if (err) {
-		if ((bindex == 0) ||
-		    ((bindex == dbstart(dentry)) &&
-		     (!IS_COPYUP_ERR(err))))
-			goto out;
-		else {
-			if (!IS_COPYUP_ERR(err))
-				pr_debug("unionfs: lower object deletion "
-					     "failed in branch:%d\n", bindex);
-			err = create_whiteout(dentry, sbstart(dentry->d_sb));
-		}
-	}
-#endif
 out:
 	if (!err)
 		inode_dec_link_count(dentry->d_inode);
-
-	/* We don't want to leave negative leftover dentries for revalidate. */
-//	if (!err && (dbopaque(dentry) != -1))
-//		update_bstart(dentry);
 
 	return err;
 }
@@ -197,12 +173,6 @@ static int unionfs_rmdir_first(struct inode *dir, struct dentry *dentry,
 	struct dentry *lower_dir_dentry = NULL;
 	int bstart, bend, bindex;
 	int deleted = 0; /* was at least one object deleted? */
-#if 0
-	/* Here we need to remove whiteout entries. */
-	err = delete_whiteouts(dentry, dbstart(dentry), namelist);
-	if (err)
-		goto out;
-#endif
 
 	/* sting: if a victim deletes topmost branch,
 	 * delete all other branches also */
@@ -241,7 +211,7 @@ static int unionfs_rmdir_first(struct inode *dir, struct dentry *dentry,
 		/* if lower object deletion succeeds, update inode's times */
 		if (!err)
 			unionfs_copy_attr_times(dentry->d_inode);
-		// fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
+
 		/* propagate number of hard-links */
 		set_nlink(dentry->d_inode, unionfs_get_nlinks(dentry->d_inode));
 
@@ -292,33 +262,6 @@ int unionfs_rmdir(struct inode *dir, struct dentry *dentry)
 	dstart = dbstart(dentry);
 	dend = dbend(dentry);
 
-	#if 0
-	/*
-	 * We create a whiteout for the directory if there was an error to
-	 * rmdir the first directory entry in the union.  Otherwise, we
-	 * create a whiteout only if there is no chance that a lower
-	 * priority branch might also have the same named directory.  IOW,
-	 * if there is not another same-named directory at a lower priority
-	 * branch, then we don't need to create a whiteout for it.
-	 */
-	if (!err) {
-		if (dstart < dend)
-			err = create_whiteout(dentry, dstart);
-	} else {
-		int new_err;
-
-		if (dstart == 0)
-			goto out;
-
-		/* exit if the error returned was NOT -EROFS */
-		if (!IS_COPYUP_ERR(err))
-			goto out;
-
-		new_err = create_whiteout(dentry, dstart - 1);
-		if (new_err != -EEXIST)
-			err = new_err;
-	}
-	#endif
 out:
 	/*
 	 * Drop references to lower dentry/inode so storage space for them

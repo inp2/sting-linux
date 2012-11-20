@@ -14,9 +14,6 @@
 #include <linux/types.h>
 #include <linux/stacktrace.h>
 
-// extern int unw_user_dict_set_value(ino_t, char *);
-// extern int unw_user_dict_get_value(ino_t, char *);
-
 #define USER_STACK_MAX 16
 #define INT_FNAME_MAX 32
 

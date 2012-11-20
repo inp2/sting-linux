@@ -21,14 +21,14 @@ struct dict_entry *dict_lookup(struct hlist_head *dict,
 
 	df->dict_get_read_lock();
 
-    hlist_for_each_entry(tmp, node, &dict[i], list) {
+	hlist_for_each_entry(tmp, node, &dict[i], list) {
 		if (!df->dict_key_cmp(df->dict_key_get(tmp), key)) {
 			df->dict_release_read_lock();
 			return tmp;
 		}
-    }
+	}
 	df->dict_release_read_lock();
-    return NULL;
+	return NULL;
 }
 EXPORT_SYMBOL(dict_lookup);
 
@@ -63,7 +63,7 @@ void dict_entry_remove(struct hlist_head *dict,
 	i = df->dict_hash(key);
 
 	df->dict_get_write_lock();
-    hlist_for_each_entry_safe(tmp, node, n, &dict[i], list) {
+	hlist_for_each_entry_safe(tmp, node, n, &dict[i], list) {
 		if (!df->dict_key_cmp(df->dict_key_get(tmp), key)) {
 			hlist_del(&(tmp->list));
 			df->dict_entry_free(tmp);
@@ -72,30 +72,29 @@ void dict_entry_remove(struct hlist_head *dict,
 	}
 
 	df->dict_release_write_lock();
-    return;
+	return;
 }
 EXPORT_SYMBOL(dict_entry_remove);
 
 struct dict_entry *dict_entry_set(struct hlist_head *dict,
 		struct dict_key *key, struct dict_val *val, struct dict_fns *df)
 {
-    struct dict_entry *tmp;
+	struct dict_entry *tmp;
 	int i;
 
-
-	if ((tmp = dict_lookup(dict, key, df)) != NULL) {
+	tmp = dict_lookup(dict, key, df);
+	if (tmp) {
 		/* Update existing entry */
 		/* TODO: For in-place mods, we don't lock, even
 		   in sting.c */
-		// df->dict_get_write_lock();
+		/* df->dict_get_write_lock(); */
 		df->dict_val_cpy(df->dict_val_get(tmp), val);
-		// df->dict_release_write_lock();
+		/* df->dict_release_write_lock(); */
 	} else {
 		/* Create new entry */
 		tmp = df->dict_entry_alloc();
-		if (!tmp) {
+		if (!tmp)
 			return ERR_PTR(-ENOMEM);
-		}
 
 		df->dict_val_cpy(df->dict_val_get(tmp), val);
 		df->dict_key_cpy(df->dict_key_get(tmp), key);
@@ -106,13 +105,13 @@ struct dict_entry *dict_entry_set(struct hlist_head *dict,
 		hlist_add_head(&(tmp->list), &(dict[i]));
 		df->dict_release_write_lock();
 	}
-    return tmp;
+	return tmp;
 }
 EXPORT_SYMBOL(dict_entry_set);
 
 /* reverse lookup: get first entry that has matching value */
 struct dict_entry *dict_reverse_lookup(struct hlist_head *dict,
-		struct dict_val *val, unsigned long dict_sz, struct dict_fns *df)
+	struct dict_val *val, unsigned long dict_sz, struct dict_fns *df)
 {
 	struct dict_entry *tmp;
 	unsigned long i;
@@ -136,7 +135,8 @@ EXPORT_SYMBOL(dict_reverse_lookup);
 /* generic callback function on each dict entry */
 void dict_entry_generic(struct hlist_head *dict, unsigned long dict_sz,
 		struct dict_fns *df, void *private_data,
-		void (*dict_gen_func) (struct dict_entry *e, void *private_data))
+		void (*dict_gen_func)
+			(struct dict_entry *e, void *private_data))
 {
 	struct dict_entry *tmp;
 	unsigned long i;

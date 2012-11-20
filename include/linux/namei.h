@@ -112,9 +112,9 @@ static inline void nd_terminate_link(void *name, size_t len, size_t maxlen)
 	((char *) name)[min(len, maxlen)] = '\0';
 }
 
-extern inline unsigned long hash_name(const char *name, unsigned int *hashp); 
+extern inline unsigned long hash_name(const char *name, unsigned int *hashp);
 extern inline int walk_component(struct nameidata *nd, struct path *path,
-		struct qstr *name, int type, int follow); 
-extern int complete_walk(struct nameidata *nd); 
-extern inline int may_lookup(struct nameidata *nd); 
+		struct qstr *name, int type, int follow);
+extern int complete_walk(struct nameidata *nd);
+extern inline int may_lookup(struct nameidata *nd);
 #endif /* _LINUX_NAMEI_H */

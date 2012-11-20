@@ -542,20 +542,7 @@ int complete_walk(struct nameidata *nd)
 
 	/* Note: we do not d_invalidate() */
 	status = d_revalidate(dentry, nd);
-#if 0
-	if (unlikely(status <= 0)) {
-		if (status != -ECHILD)
-		if (!d_invalidate(dentry)) {
-			dput(dentry);
-			BUG_ON(nd->inode != parent->d_inode);
-			mutex_lock(&parent->d_inode->i_mutex);
-			dentry = __lookup_hash(name, parent, nd);
-			mutex_unlock(&parent->d_inode->i_mutex);
-			nd->inode = __lookup_hash(name, parent, nd);
-			if (!dentry)
-		}
-	}
-#endif
+
 	if (status > 0)
 		return 0;
 
@@ -1261,40 +1248,6 @@ inline int may_lookup(struct nameidata *nd)
 
 static inline int handle_dots(struct nameidata *nd, int type)
 {
-#if 0
-	int status = 0;
-	struct dentry *dentry, *parent;
-	struct qstr *name;
-	/* in sting, the current dentry may not be
-	 * appropriate for a switched context (e.g., su,
-	 * changed permissions).
-	 * therefore, on a path lookup, revalidate
-	 * current dentry (and re-lookup if necessary).
-	 * note that this will not happen for fds.  */
-
-	dentry = nd->path.dentry;
-	if (dentry->d_flags & DCACHE_OP_REVALIDATE) {
-		status = d_revalidate(dentry, nd);
-		if (unlikely(status <= 0)) {
-//			if (!d_invalidate(dentry)) {
-				name = &dentry->d_name;
-				parent = nd->path.dentry = dget_parent(dentry);
-				nd->inode = parent->d_inode;
-				dput(dentry);
-
-				mutex_lock(&parent->d_inode->i_mutex);
-				dentry = __lookup_hash(name, parent, nd);
-				mutex_unlock(&parent->d_inode->i_mutex);
-
-				dput(parent);
-				if (!dentry)
-					return -ESTALE;
-				nd->path.dentry = dentry;
-				nd->inode = dentry->d_inode;
-//			}
-		}
-	}
-#endif
 	if (type == LAST_DOTDOT) {
 		if (nd->flags & LOOKUP_RCU) {
 			if (follow_dotdot_rcu(nd))

@@ -47,10 +47,10 @@
 static unsigned long __uptr;
 static unsigned long __kptr;
 #define A(a, off) ({ \
-			__uptr = (unsigned long) ((char*) a + off); \
-			copy_from_user(&__kptr, (void *) __uptr, sizeof(void *)); \
-			__kptr; \
-		})
+		__uptr = (unsigned long) ((char*) a + off); \
+		copy_from_user(&__kptr, (void *) __uptr, sizeof(void *)); \
+		__kptr; \
+	})
 #define O(ps, m) (offsetof(typeof(*ps), m))
 
 #define MAX_INT_STR 32
@@ -100,12 +100,12 @@ struct int_bt_info {
 /*
  * bash vars:
  * var_info	[0] - shell_variables (global)
- *   		[1]	- currently_executing_command (global)
- *   		[2] - executing (global)
- *   		[3] - showing_function_line (global)
- *   		[4] - variable_context (global)
- *   		[5] - interactive_shell (global)
- *   		[6] - line_number (global)
+ *		[1]	- currently_executing_command (global)
+ *		[2] - executing (global)
+ *		[3] - showing_function_line (global)
+ *		[4] - variable_context (global)
+ *		[5] - interactive_shell (global)
+ *		[6] - line_number (global)
  */
 
 struct int_bt_info bash_bt_info;
@@ -119,199 +119,6 @@ struct int_bt_info php_bt_info;
 
 char scratch_string[INT_FNAME_MAX];
 
-#if 0
-/* No security-check version of kernel_read to avoid recursion
-	during vfs_read */
-
-#define MAX_RW_COUNT (INT_MAX & PAGE_CACHE_MASK)
-
-int nosec_rw_verify_area(int read_write, struct file *file, loff_t *ppos, size_t count)
-{
-	struct inode *inode;
-	loff_t pos;
-	int retval = -EINVAL;
-
-	inode = file->f_path.dentry->d_inode;
-	if (unlikely((ssize_t) count < 0))
-		return retval;
-	pos = *ppos;
-	if (unlikely((pos < 0) || (loff_t) (pos + count) < 0))
-		return retval;
-
-	if (unlikely(inode->i_flock && mandatory_lock(inode))) {
-		retval = locks_mandatory_area(
-			read_write == READ ? FLOCK_VERIFY_READ : FLOCK_VERIFY_WRITE,
-			inode, file, pos, count);
-		if (retval < 0)
-			return retval;
-	}
-	/* Get rid of the security hook */
-	return count > MAX_RW_COUNT ? MAX_RW_COUNT : count;
-}
-
-ssize_t nosec_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
-{
-	ssize_t ret;
-
-	if (!(file->f_mode & FMODE_READ))
-		return -EBADF;
-	if (!file->f_op || (!file->f_op->read && !file->f_op->aio_read))
-		return -EINVAL;
-	if (unlikely(!access_ok(VERIFY_WRITE, buf, count)))
-		return -EFAULT;
-
-	/* This is where the security hook is omitted */
-	ret = nosec_rw_verify_area(READ, file, pos, count);
-	if (ret >= 0) {
-		count = ret;
-		if (file->f_op->read)
-			ret = file->f_op->read(file, buf, count, pos);
-		else
-			ret = do_sync_read(file, buf, count, pos);
-		if (ret > 0) {
-			fsnotify_access(file->f_path.dentry);
-			add_rchar(current, ret);
-		}
-		inc_syscr(current);
-	}
-
-	return ret;
-}
-
-int nosec_kernel_read(struct file *file, loff_t offset,
-		char *addr, unsigned long count)
-{
-	mm_segment_t old_fs;
-	loff_t pos = offset;
-	int result;
-
-	old_fs = get_fs();
-	set_fs(get_ds());
-	/* The cast to a user pointer is valid due to the set_fs() */
-	result = nosec_vfs_read(file, (void __user *)addr, count, &pos);
-	set_fs(old_fs);
-	return result;
-}
-EXPORT_SYMBOL(nosec_kernel_read);
-
-
-/* Parse ELF file to get symtab and symtab string table */
-int fill_sym(struct file *exe_file, Elf_Sym **symtab, char **symtabstrings, int *symtabsize)
-{
-	int ret = 0;
-	Elf_Ehdr *ehdr;
-	Elf_Shdr *sechdrs;
-	char *secstrings;
-	int i;
-
-	/* TODO: Clean up repeat patterns into macros */
-	ehdr = (Elf_Ehdr *) kmalloc(sizeof(Elf_Ehdr), GFP_KERNEL);
-	if (!ehdr) {
-		printk(KERN_INFO PFWALL_PFX "ehdr alloc failed!\n");
-		goto end;
-	}
-
-	current->sting_request++;
-	ret = nosec_kernel_read(current->mm->exe_file, 0, (char *) ehdr, sizeof(Elf_Ehdr));
-	current->sting_request--;
-
-	if (ret != sizeof(Elf_Ehdr)) {
-		if (ret < 0)
-			goto end;
-	}
-
-	sechdrs = (Elf_Shdr *) kmalloc(ehdr->e_shentsize * ehdr->e_shnum, GFP_KERNEL);
-	if (!sechdrs) {
-		printk(KERN_INFO PFWALL_PFX "sechdrs alloc failed!\n");
-		goto end;
-	}
-
-	current->kernel_request++;
-	ret = nosec_kernel_read(current->mm->exe_file, ehdr->e_shoff, (char *) sechdrs, ehdr->e_shentsize * ehdr->e_shnum);
-	current->kernel_request--;
-
-	if (ret != ehdr->e_shentsize * ehdr->e_shnum) {
-		if (ret < 0)
-			goto end;
-	}
-
-	/* Get the section headers string table to locate symbol table
-	   string table ".strtab" */
-	secstrings = kmalloc(sechdrs[ehdr->e_shstrndx].sh_size, GFP_KERNEL);
-	if (!secstrings) {
-		printk(KERN_INFO PFWALL_PFX "secstrings alloc failed!\n");
-		goto end;
-	}
-
-	current->kernel_request++;
-	ret = nosec_kernel_read(current->mm->exe_file, sechdrs[ehdr->e_shstrndx].sh_offset, (char *) secstrings, sechdrs[ehdr->e_shstrndx].sh_size);
-	current->kernel_request--;
-
-	if (ret != sechdrs[ehdr->e_shstrndx].sh_size) {
-		if (ret < 0)
-			goto end;
-	}
-
-
-	for (i = 1; i < ehdr->e_shnum; i++) {
-		if (sechdrs[i].sh_type == SHT_SYMTAB) {
-			*symtab = (Elf_Sym *) kmalloc(sechdrs[i].sh_size, GFP_KERNEL);
-			if (!*symtab) {
-				printk(KERN_INFO PFWALL_PFX "symtab alloc failed!\n");
-				goto end;
-			}
-
-			current->kernel_request++;
-			ret = nosec_kernel_read(current->mm->exe_file, sechdrs[i].sh_offset, (char*) *symtab, sechdrs[i].sh_size);
-			current->kernel_request--;
-
-			if (ret != sechdrs[i].sh_size) {
-				if (ret < 0)
-					goto end;
-			}
-			*symtabsize = ret;
-		} else if (sechdrs[i].sh_type == SHT_STRTAB) {
-			if (!strcmp(SYMSTRTAB_NAME, secstrings + sechdrs[i].sh_name)) {
-				*symtabstrings = (char *) kmalloc(sechdrs[i].sh_size, GFP_KERNEL);
-				if (!*symtabstrings) {
-					printk(KERN_INFO PFWALL_PFX "symtabstrings alloc failed!\n");
-					goto end;
-				}
-
-				current->kernel_request++;
-				ret = nosec_kernel_read(current->mm->exe_file, sechdrs[i].sh_offset, (char *) *symtabstrings, sechdrs[i].sh_size);
-				current->kernel_request--;
-				if (ret != sechdrs[i].sh_size) {
-					if (ret < 0)
-						goto end;
-				}
-			}
-		}
-	}
-end:
-	if (ehdr)
-		kfree(ehdr);
-	if (sechdrs)
-		kfree(sechdrs);
-	return ret;
-}
-
-/* Look up the address of a variable, and set the pointer to point to that
-	value  */
-void get_userspace_ref(char *var_name, void __user **ptr, Elf_Sym *symtab, char *symtabstrings, int symtabsize)
-{
-	int nr_entries = symtabsize / sizeof(Elf_Sym);
-	int i;
-	for (i = 0; i < nr_entries; i++) {
-		if (!strcmp(symtabstrings + symtab[i].st_name, var_name)) {
-			*ptr = (void *) symtab[i].st_value;
-			return ;
-		}
-	}
-	*ptr = NULL;
-	return;
-}
-#endif
 
 /* BASH BEGIN */
 
@@ -320,20 +127,19 @@ void get_userspace_ref(char *var_name, void __user **ptr, Elf_Sym *symtab, char 
 unsigned int
 hash_string (const char *s)
 {
-  register unsigned int i;
+	register unsigned int i;
 
-  /* This is the best string hash function I found.
+	/* This is the best string hash function I found.
 
-     The magic is in the interesting relationship between the special prime
-     16777619 (2^24 + 403) and 2^32 and 2^8. */
+	The magic is in the interesting relationship between the special prime
+	16777619 (2^24 + 403) and 2^32 and 2^8. */
 
-  for (i = 0; *s; s++)
-    {
-      i *= 16777619;
-      i ^= *s;
-    }
+	for (i = 0; *s; s++) {
+		i *= 16777619;
+		i ^= *s;
+	}
 
-  return i;
+	return i;
 }
 
 /* Return a pointer to the hashed item.  If the HASH_CREATE flag is passed,
@@ -353,13 +159,13 @@ hash_search (const char *string, HASH_TABLE *table)
 	bucket_array = (BUCKET_CONTENTS **) A(table, O(table, bucket_array));
 	if (bucket_array == NULL)
 		goto end;
-	/* ??? * sizeof(void *)? */
-	for (list = (BUCKET_CONTENTS *) A(bucket_array, bucket * sizeof(void *));
-			list; list = (BUCKET_CONTENTS *) A(list, O(list, next)))
-//  for (list = table->bucket_array ? table->bucket_array[bucket] : 0; list; list = list->next)
-    {
-		strncpy_from_user(scratch_string, (char *) A(list, O(list, key)), INT_FNAME_MAX - 1);
-		if (hv == (A(list, O(list, khash))) && (STREQ (scratch_string, string))) {
+
+	list = (BUCKET_CONTENTS *) A(bucket_array, bucket*sizeof(void *));
+	for (; list; list = (BUCKET_CONTENTS *) A(list, O(list, next))) {
+		strncpy_from_user(scratch_string,
+			(char *) A(list, O(list, key)), INT_FNAME_MAX - 1);
+		if ((hv == (A(list, O(list, khash)))) &&
+			(STREQ (scratch_string, string))) {
 			return (list);
 		}
     }
@@ -370,24 +176,26 @@ end:
 static SHELL_VAR *
 hash_lookup (const char *name, HASH_TABLE *hashed_vars)
 {
-  BUCKET_CONTENTS *bucket;
+	BUCKET_CONTENTS *bucket;
 
-  bucket = hash_search (name, hashed_vars);
-  return (bucket ? (SHELL_VAR *) A(bucket, O(bucket, data)) : (SHELL_VAR *)NULL);
+	bucket = hash_search (name, hashed_vars);
+	return (bucket ? (SHELL_VAR *) A(bucket, O(bucket, data)) :
+		(SHELL_VAR *)NULL);
 }
 
 SHELL_VAR *
 var_lookup (const char *name, VAR_CONTEXT *vcontext)
 {
-  VAR_CONTEXT *vc;
-  SHELL_VAR *v;
+	VAR_CONTEXT *vc;
+	SHELL_VAR *v;
 
-  v = (SHELL_VAR *)NULL;
-  for (vc = vcontext; vc; vc = (VAR_CONTEXT *) A(vc, O(vc, down)))
-    if ((v = hash_lookup (name, (HASH_TABLE *) A(vc, O(vc, table)))))
-      break;
+	v = (SHELL_VAR *)NULL;
+	for (vc = vcontext; vc; vc = (VAR_CONTEXT *) A(vc, O(vc, down)))
+		v = hash_lookup(name, (HASH_TABLE *) A(vc, O(vc, table)));
+		if (v)
+			break;
 
-  return v;
+	return v;
 }
 
 SHELL_VAR *
@@ -469,14 +277,27 @@ executing_line_number(struct user_stack_info *us)
 	line_number = A(line_ptr, 0);
 
 	if (executing && showing_function_line == 0 &&
-      (variable_context == 0 || interactive_shell == 0) &&
-      currently_executing_command) {
-		if (A(currently_executing_command, O(currently_executing_command, type)) == cm_cond)
-			return A(A(currently_executing_command, O(currently_executing_command, value.Cond)), O(currently_executing_command->value.Cond, line));
-		else if (A(currently_executing_command, O(currently_executing_command, type)) == cm_arith)
-			return A(A(currently_executing_command, O(currently_executing_command, value.Cond)), O(currently_executing_command->value.Arith, line));
-		else if (A(currently_executing_command, O(currently_executing_command, type)) == cm_arith_for)
-			return A(A(currently_executing_command, O(currently_executing_command, value.Cond)), O(currently_executing_command->value.ArithFor, line));
+	  (variable_context == 0 || interactive_shell == 0) &&
+	  currently_executing_command) {
+		if (A(currently_executing_command,
+			    O(currently_executing_command, type)) == cm_cond)
+			return A(A(currently_executing_command,
+				O(currently_executing_command, value.Cond)),
+				O(currently_executing_command->value.Cond,
+				    line));
+		else if (A(currently_executing_command,
+			    O(currently_executing_command, type)) == cm_arith)
+			return A(A(currently_executing_command,
+				O(currently_executing_command, value.Cond)),
+				O(currently_executing_command->value.Arith,
+				    line));
+		else if (A(currently_executing_command,
+			    O(currently_executing_command, type)) ==
+				cm_arith_for)
+			return A(A(currently_executing_command,
+				O(currently_executing_command, value.Cond)),
+				O(currently_executing_command->value.ArithFor,
+				    line));
 		else
 			return line_number;
     } else {
@@ -516,7 +337,8 @@ int pft_bash_context(struct user_stack_info *us)
 		strncpy_from_user(scratch_string, retval, INT_FNAME_MAX - 1);
 
 		us->int_trace.entries[us->int_trace.nr_entries] = lineno;
-		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries], scratch_string);
+		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries],
+			scratch_string);
 		us->int_trace.nr_entries++;
 		i++;
 	}
@@ -546,13 +368,17 @@ int pft_php_context(struct user_stack_info *us)
 
 	while (ptr) {
 		if (A(ptr, O(ptr, op_array))) {
-			ptr2 = (void *) A(A(ptr, O(ptr, op_array)), O(ptr->op_array, filename));
-			strncpy_from_user(scratch_string, (void *) ptr2, INT_FNAME_MAX - 1);
-			lineno = A(A(ptr, O(ptr, opline)), O(ptr->opline, lineno));
+			ptr2 = (void *) A(A(ptr, O(ptr, op_array)),
+				O(ptr->op_array, filename));
+			strncpy_from_user(scratch_string, (void *) ptr2,
+				INT_FNAME_MAX - 1);
+			lineno = A(A(ptr, O(ptr, opline)),
+				O(ptr->opline, lineno));
 		}
 		ptr = (zend_execute_data *) A(ptr, O(ptr, prev_execute_data));
 		us->int_trace.entries[us->int_trace.nr_entries] = lineno;
-		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries], scratch_string);
+		strcpy(us->int_trace.int_filename[us->int_trace.nr_entries],
+			scratch_string);
 		us->int_trace.nr_entries++;
 	}
 
@@ -565,7 +391,8 @@ unsigned long backtrace_contains(struct user_stack_info *us,
 {
 	int i = 0;
 	unsigned long addr = 0;
-	while ((i < us->trace.nr_entries) && (us->trace.entries[i] != ULONG_MAX)) {
+	while ((i < us->trace.nr_entries) &&
+		(us->trace.entries[i] != ULONG_MAX)) {
 		addr = (us->trace.entries[i] - us->trace.vma_start[i]);
 		if ((addr >= fn_st) && (addr < (fn_st + fn_len)))
 			return 1;
@@ -579,12 +406,16 @@ struct int_bt_info *on_script_behalf(struct user_stack_info *us)
 	if (us->trace.bin_ip_exists == 0)
 		return NULL;
 
-	if (bash_bt_info.ino && (us->trace.vma_inoden[us->trace.ept_ind] == bash_bt_info.ino))
-		if (backtrace_contains(us, bash_bt_info.loop_fn, bash_bt_info.size))
+	if (bash_bt_info.ino &&
+		(us->trace.vma_inoden[us->trace.ept_ind] == bash_bt_info.ino))
+		if (backtrace_contains(us, bash_bt_info.loop_fn,
+			    bash_bt_info.size))
 			return &bash_bt_info;
 
-	if (php_bt_info.ino && us->trace.vma_inoden[us->trace.ept_ind] == php_bt_info.ino)
-		if (backtrace_contains(us, php_bt_info.loop_fn, php_bt_info.size))
+	if (php_bt_info.ino &&
+		us->trace.vma_inoden[us->trace.ept_ind] == php_bt_info.ino)
+		if (backtrace_contains(us, php_bt_info.loop_fn,
+			    php_bt_info.size))
 			return &php_bt_info;
 
 	return NULL;
@@ -629,8 +460,9 @@ void copy_interpreter_info(struct task_struct *c, struct task_struct *p)
 {
 	if (p->user_stack.int_trace.nr_entries) {
 		c->user_stack.int_trace = p->user_stack.int_trace;
-		memcpy(c->user_stack.int_trace.int_filename, p->user_stack.int_trace.int_filename,
-				USER_STACK_MAX * INT_FNAME_MAX);
+		memcpy(c->user_stack.int_trace.int_filename,
+			p->user_stack.int_trace.int_filename,
+			USER_STACK_MAX * INT_FNAME_MAX);
 	}
 }
 EXPORT_SYMBOL(copy_interpreter_info);
@@ -695,7 +527,8 @@ int interpreter_line_load(char *data)
 
 		l = strsep(r, ":");
 		if (int_info->is_global[i]) {
-			int_info->var_info[i].global_var = simple_strtoul(l, NULL, 0);
+			int_info->var_info[i].global_var =
+			    simple_strtoul(l, NULL, 0);
 			if (!int_info->var_info[i].global_var)
 				return -EINVAL;
 		}
@@ -750,7 +583,7 @@ out:
 }
 
 static const struct file_operations interpreter_info_fops = {
-	.write  = interpreter_info_write,
+	.write	= interpreter_info_write,
 };
 
 static int __init interpreter_info_init(void)
@@ -762,7 +595,8 @@ static int __init interpreter_info_init(void)
 	printk(KERN_INFO STING_MSG "creating interpreter_info file\n");
 
 	if(!interpreter_info) {
-		printk(KERN_INFO STING_MSG "unable to create interpreter_info\n");
+		printk(KERN_INFO STING_MSG
+			"unable to create interpreter_info\n");
 	}
 	return 0;
 }

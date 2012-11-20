@@ -88,23 +88,12 @@ static int __unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 				       bindex);
 		if (IS_ERR(lower_new_dentry)) {
 			err = PTR_ERR(lower_new_dentry);
-//			if (IS_COPYUP_ERR(err))
-//				goto out;
 			printk(KERN_ERR "unionfs: error creating directory "
 			       "tree for rename, bindex=%d err=%d\n",
 			       bindex, err);
 			goto out;
 		}
 	}
-
-#if 0
-	/* check for and remove whiteout, if any */
-	err = check_unlink_whiteout(new_dentry, lower_new_dentry, bindex);
-	if (err > 0) /* ignore if whiteout found and successfully removed */
-		err = 0;
-	if (err)
-		goto out;
-#endif
 
 	/* check of old_dentry branch is writable */
 	err = is_robranch_super(old_dentry->d_sb, bindex);
@@ -202,8 +191,6 @@ static int do_unionfs_rename(struct inode *old_dir,
 				   a benign process created lower entry
 				   after we renamed the upper file. */
 				err = 0;
-	//		if (!IS_COPYUP_ERR(err))
-	//		do_copyup = old_bstart - 1;
 			}
 			goto out;
 		} else {
@@ -243,70 +230,11 @@ static int do_unionfs_rename(struct inode *old_dir,
 				unionfs_set_lower_dentry_idx(new_dentry,
 							     bindex, NULL);
 			}
-		// } else if (IS_COPYUP_ERR(err)) {
-		//	do_copyup = bindex - 1;
 		} else if (revert) {
 			goto revert;
 		}
 	}
 
-#if 0
-	if (do_copyup != -1) {
-		for (bindex = do_copyup; bindex >= 0; bindex--) {
-			/*
-			 * copyup the file into some left directory, so that
-			 * you can rename it
-			 */
-			err = copyup_dentry(old_parent->d_inode,
-					    old_dentry, old_bstart, bindex,
-					    old_dentry->d_name.name,
-					    old_dentry->d_name.len, NULL,
-					    i_size_read(old_dentry->d_inode));
-			/* if copyup failed, try next branch to the left */
-			if (err)
-				continue;
-			/*
-			 * create whiteout before calling __unionfs_rename
-			 * because the latter will change the old_dentry's
-			 * lower name and parent dir, resulting in the
-			 * whiteout getting created in the wrong dir.
-			 */
-			err = create_whiteout(old_dentry, bindex);
-			if (err) {
-				printk(KERN_ERR "unionfs: can't create a "
-				       "whiteout for %s in rename (err=%d)\n",
-				       old_dentry->d_name.name, err);
-				continue;
-			}
-			err = __unionfs_rename(old_dir, old_dentry, old_parent,
-					       new_dir, new_dentry, new_parent,
-					       bindex);
-			break;
-		}
-	}
-
-	/* make it opaque */
-	if (S_ISDIR(old_dentry->d_inode->i_mode)) {
-		err = make_dir_opaque(old_dentry, dbstart(old_dentry));
-		if (err)
-			goto revert;
-	}
-
-	/*
-	 * Create whiteout for source, only if:
-	 * (1) There is more than one underlying instance of source.
-	 * (We did a copy_up is taken care of above).
-	 */
-	if ((old_bstart != old_bend) && (do_copyup == -1)) {
-		err = create_whiteout(old_dentry, old_bstart);
-		if (err) {
-			/* can't fix anything now, so we exit with -EIO */
-			printk(KERN_ERR "unionfs: can't create a whiteout for "
-			       "%s in rename!\n", old_dentry->d_name.name);
-			err = -EIO;
-		}
-	}
-#endif
 out:
 	return err;
 
@@ -389,8 +317,6 @@ static int may_rename_dir(struct dentry *dentry, struct dentry *parent)
 	}
 
 	bstart = dbstart(dentry);
-	// if (dbend(dentry) == bstart || dbopaque(dentry) == bstart)
-//		return 0;
 
 	dbstart(dentry) = bstart + 1;
 	err = check_empty(dentry, parent, NULL);
@@ -408,7 +334,6 @@ int unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		   struct inode *new_dir, struct dentry *new_dentry)
 {
 	int err = 0;
-	// struct dentry *wh_dentry;
 	struct dentry *old_parent, *new_parent;
 	int valid = true;
 
@@ -450,41 +375,6 @@ int unionfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (err)
 		goto out;
 
-#if 0
-	/*
-	 * if new_dentry is already lower because of whiteout,
-	 * simply override it even if the whited-out dir is not empty.
-	 */
-	wh_dentry = find_first_whiteout(new_dentry);
-	if (!IS_ERR(wh_dentry)) {
-		dput(wh_dentry);
-	} else if (new_dentry->d_inode) {
-		if (S_ISDIR(old_dentry->d_inode->i_mode) !=
-		    S_ISDIR(new_dentry->d_inode->i_mode)) {
-			err = S_ISDIR(old_dentry->d_inode->i_mode) ?
-				-ENOTDIR : -EISDIR;
-			goto out;
-		}
-
-		if (S_ISDIR(new_dentry->d_inode->i_mode)) {
-			struct unionfs_dir_state *namelist = NULL;
-			/* check if this unionfs directory is empty or not */
-			err = check_empty(new_dentry, new_parent, &namelist);
-			if (err)
-				goto out;
-
-			if (!is_robranch(new_dentry))
-				err = delete_whiteouts(new_dentry,
-						       dbstart(new_dentry),
-						       namelist);
-
-			free_rdstate(namelist);
-
-			if (err)
-				goto out;
-		}
-	}
-#endif
 	err = do_unionfs_rename(old_dir, old_dentry, old_parent,
 				new_dir, new_dentry, new_parent);
 	if (err)

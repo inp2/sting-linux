@@ -43,25 +43,16 @@ static int readdir_util_callback(void *dirent, const char *oname, int namelen,
 			       (name[1] == '.' && namelen == 2)))
 		goto out;
 
-#if 0
-	is_whiteout = is_whiteout_name(&name, &namelen);
-
-	found = find_filldir_node(buf->rdstate, name, namelen, is_whiteout);
-	/* If it was found in the table there was a previous whiteout. */
-	if (found)
-		goto out;
-
-#endif
 	/*
 	 * if it wasn't found and isn't a whiteout, the directory isn't
 	 * empty.
 	 */
 	err = -ENOTEMPTY;
-	if ((buf->mode == RD_CHECK_EMPTY)) // && !is_whiteout)
+	if ((buf->mode == RD_CHECK_EMPTY))
 		goto out;
 
 	err = add_filldir_node(buf->rdstate, name, namelen,
-			       buf->rdstate->bindex, 0); //is_whiteout);
+			       buf->rdstate->bindex, 0);
 
 out:
 	buf->err = err;

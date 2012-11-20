@@ -20,7 +20,7 @@
 
 static ssize_t
 ept_dict_read(struct file *file, char __user *ubuf,
-                       size_t count, loff_t *ppos)
+				size_t count, loff_t *ppos)
 {
 	int nt, na, n = 0;
 	char *s;
@@ -33,7 +33,7 @@ ept_dict_read(struct file *file, char __user *ubuf,
 	s = kasprintf(GFP_KERNEL, "Adv access/total = [%d/%d]\n"
 			"See %s for full dictionary\n", na, nt, STING_LOG_FILE);
 	if (s) {
-	    n = simple_read_from_buffer(ubuf, count, ppos, s,
+		n = simple_read_from_buffer(ubuf, count, ppos, s,
 				strlen(s) + 1);
 		kfree(s);
 	} else {
@@ -43,15 +43,15 @@ ept_dict_read(struct file *file, char __user *ubuf,
 	return n;
 }
 
-static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
-			size_t count, loff_t *ppos)
+static ssize_t ept_dict_write(struct file *file,
+		const char __user *ubuf, size_t count, loff_t *ppos)
 {
 	/* done - position in buf to store */
 	/* rcount - number of bytes to store in buf */
 	/* total - total number of bytes to store in buf
 	 * -- not the total number of bytes read */
 	static char *buf;
-	static int total = 0;
+	static int total;
 	static int done;
 	int res = 0;
 	int rcount = count; /* real count */
@@ -89,7 +89,7 @@ static ssize_t ept_dict_write(struct file *file, const char __user *ubuf,
 }
 
 static const struct file_operations ept_dict_fops = {
-	.read   = ept_dict_read,
+	.read	= ept_dict_read,
 	.write	= ept_dict_write
 };
 
@@ -101,9 +101,9 @@ static int __init sting_ept_dict_init(void)
 			0600, NULL, NULL, &ept_dict_fops);
 	printk(KERN_INFO STING_MSG "creating ept_dict file\n");
 
-	if(!ept_dict) {
+	if (!ept_dict)
 		printk(KERN_INFO STING_MSG "unable to create ept_dict\n");
-	}
+
 	return 0;
 }
 fs_initcall(sting_ept_dict_init);
@@ -111,9 +111,8 @@ fs_initcall(sting_ept_dict_init);
 /* Entrypoint dictionary */
 
 static struct rw_semaphore ept_dict_lock;
-// DEFINE_RWLOCK(ept_dict_lock);
 
-#define DICT_HASH_BITS            8
+#define DICT_HASH_BITS			  8
 #define DICT_HTABLE_SIZE (1 << DICT_HASH_BITS)
 
 struct hlist_head ept_dict_htable[DICT_HTABLE_SIZE];
@@ -174,25 +173,21 @@ static void ept_dict_entry_free(struct dict_entry *e)
 static void ept_dict_get_read_lock(void)
 {
 	down_read(&ept_dict_lock);
-	// read_lock(&ept_dict_lock);
 }
 
 static void ept_dict_release_read_lock(void)
 {
 	up_read(&ept_dict_lock);
-	// read_unlock(&ept_dict_lock);
 }
 
 static void ept_dict_get_write_lock(void)
 {
 	down_write(&ept_dict_lock);
-	// write_lock(&ept_dict_lock);
 }
 
 static void ept_dict_release_write_lock(void)
 {
 	up_write(&ept_dict_lock);
-	// write_unlock(&ept_dict_lock);
 }
 
 static struct dict_fns ept_dict_fns = {
@@ -231,7 +226,8 @@ void ept_dict_free(void)
 }
 EXPORT_SYMBOL(ept_dict_free);
 
-struct ept_dict_entry *ept_dict_entry_set(struct ept_dict_key *key, struct ept_dict_val *val)
+struct ept_dict_entry *ept_dict_entry_set(struct ept_dict_key *key,
+		struct ept_dict_val *val)
 {
 	return (struct ept_dict_entry *) dict_entry_set(ept_dict_htable,
 			(struct dict_key *) key, (struct dict_val *) val, &ept_dict_fns);
@@ -248,13 +244,13 @@ EXPORT_SYMBOL(ept_dict_reverse_lookup);
 static void ept_dict_f_adv_acc(struct dict_entry *e, void *pd)
 {
 	if (((struct ept_dict_entry *) e)->val.dac.adversary_access == 1)
-		(* (int *) pd)++;
+		(*(int *) pd)++;
 	return;
 }
 
 static void ept_dict_f_total(struct dict_entry *e, void *pd)
 {
-	(* (int *) pd)++;
+	(*(int *) pd)++;
 	return;
 }
 
@@ -325,37 +321,39 @@ module_init(ept_dict_target_init);
 
 /* ept_dict_dump file */
 
-static struct dentry *create_ept_dict_dump_file_callback(const char *filename,
-		struct dentry *parent, umode_t mode, struct rchan_buf *buf, int *is_global)
+static struct dentry *create_ept_dict_dump_file_callback(
+		const char *filename, struct dentry *parent, umode_t mode,
+		struct rchan_buf *buf, int *is_global)
 {
 	return debugfs_create_file(filename, mode, parent, buf,
 								   &relay_file_operations);
 }
 
-static int remove_ept_dict_dump_file_callback(struct dentry* dentry)
+static int remove_ept_dict_dump_file_callback(struct dentry *dentry)
 {
 	debugfs_remove(dentry);
 	return 0;
 }
 
 #define EPT_DICT_DUMP_FILE "ept_dict_dump"
+
  /* callback when one subbuffer is full */
-static int subbuf_ept_dict_dump_start_callback(struct rchan_buf *buf, void *subbuf,
-		 void *prev_subbuf, size_t prev_padding)
+static int subbuf_ept_dict_dump_start_callback(struct rchan_buf *buf,
+		void *subbuf, void *prev_subbuf, size_t prev_padding)
 {
-	atomic_t* dropped;
+	atomic_t *dropped;
 	if (!relay_buf_full(buf))
 		return 1;
 	dropped = buf->chan->private_data;
 	atomic_inc(dropped);
 	if (atomic_read(dropped) % 5000 == 0)
-		STING_ERR(1, "%s full, dropped: %d\n", EPT_DICT_DUMP_FILE, atomic_read(dropped));
+		STING_ERR(1, "%s full, dropped: %d\n", EPT_DICT_DUMP_FILE,
+				atomic_read(dropped));
 	return 0;
 }
 
 static atomic_t dropped = ATOMIC_INIT(0);
-static struct rchan_callbacks ept_dict_dump_relay_callbacks =
-{
+static struct rchan_callbacks ept_dict_dump_relay_callbacks = {
 	.subbuf_start		= subbuf_ept_dict_dump_start_callback,
 	.create_buf_file	= create_ept_dict_dump_file_callback,
 	.remove_buf_file	= remove_ept_dict_dump_file_callback,

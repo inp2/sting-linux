@@ -191,9 +191,6 @@ typedef struct _hashtable {
 	zend_bool persistent;
 	unsigned char nApplyCount;
 	zend_bool bApplyProtection;
-// #if ZEND_DEBUG
-// 	int inconsistent;
-// #endif
 } HashTable;
 
 struct _zend_vm_stack;
@@ -300,7 +297,7 @@ struct _zend_executor_globals {
 	zend_ptr_stack user_exception_handlers;
 
 	zend_error_handling_t  error_handling;
-	void      *exception_class;
+	void	  *exception_class;
 
 	/* timeout support */
 	int timeout_seconds;

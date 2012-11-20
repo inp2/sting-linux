@@ -205,7 +205,7 @@ static void __d_free(struct rcu_head *head)
 	WARN_ON(!list_empty(&dentry->d_alias));
 	if (dname_external(dentry))
 		kfree(dentry->d_name.name);
-	kmem_cache_free(dentry_cache, dentry); 
+	kmem_cache_free(dentry_cache, dentry);
 }
 
 /*
@@ -498,7 +498,7 @@ relock:
 	return d_kill(dentry, parent);
 }
 
-/* 
+/*
  * This is dput
  *
  * This is complicated by the fact that we do not want to put
@@ -517,7 +517,7 @@ relock:
 
 /*
  * dput - release a dentry
- * @dentry: dentry to release 
+ * @dentry: dentry to release
  *
  * Release a dentry. This will drop the usage count and if appropriate
  * call the dentry unlink method as well as removing it from the queues and
@@ -580,7 +580,7 @@ EXPORT_SYMBOL(dput);
  *
  * no dcache lock.
  */
- 
+
 int d_invalidate(struct dentry * dentry)
 {
 	/*
@@ -1045,7 +1045,7 @@ static struct dentry *try_to_ascend(struct dentry *old, int locked, unsigned seq
  * We descend to the next level whenever the d_subdirs
  * list is non-empty and continue searching.
  */
- 
+
 /**
  * have_submounts - check for mounts over a dentry
  * @parent: dentry to check.
@@ -1248,7 +1248,7 @@ EXPORT_SYMBOL(shrink_dcache_parent);
  * available. On a success the dentry is returned. The name passed in is
  * copied and the copy passed in may be reused after this call.
  */
- 
+
 struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 {
 	struct dentry *dentry;
@@ -1261,12 +1261,12 @@ struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 	if (name->len > DNAME_INLINE_LEN-1) {
 		dname = kmalloc(name->len + 1, GFP_KERNEL);
 		if (!dname) {
-			kmem_cache_free(dentry_cache, dentry); 
+			kmem_cache_free(dentry_cache, dentry);
 			return NULL;
 		}
 	} else  {
 		dname = dentry->d_iname;
-	}	
+	}
 	dentry->d_name.name = dname;
 
 	dentry->d_name.len = name->len;
@@ -1396,7 +1396,7 @@ static void __d_instantiate(struct dentry *dentry, struct inode *inode)
  * (or otherwise set) by the caller to indicate that it is now
  * in use by the dcache.
  */
- 
+
 void d_instantiate(struct dentry *entry, struct inode * inode)
 {
 	BUG_ON(!list_empty(&entry->d_alias));
@@ -1906,7 +1906,7 @@ struct dentry *__d_lookup(struct dentry *parent, struct qstr *name)
 	 * See Documentation/filesystems/path-lookup.txt for more details.
 	 */
 	rcu_read_lock();
-	
+
 	hlist_bl_for_each_entry_rcu(dentry, node, b, d_hash) {
 		const char *tname;
 		int tlen;
@@ -2017,7 +2017,7 @@ EXPORT_SYMBOL(d_validate);
  * it from the hash queues and waiting for
  * it to be deleted later when it has no users
  */
- 
+
 /**
  * d_delete - delete a dentry
  * @dentry: The dentry to delete
@@ -2025,7 +2025,7 @@ EXPORT_SYMBOL(d_validate);
  * Turn the dentry into a negative dentry if possible, otherwise
  * remove it from the hash queues so it can be deleted later
  */
- 
+
 void d_delete(struct dentry * dentry)
 {
 	struct inode *inode;
@@ -2078,7 +2078,7 @@ static void _d_rehash(struct dentry * entry)
  *
  * Adds a dentry to the hash according to its name.
  */
- 
+
 void d_rehash(struct dentry * entry)
 {
 	spin_lock(&entry->d_lock);
@@ -2679,19 +2679,20 @@ EXPORT_SYMBOL(d_path);
 
 void path_get_parent(const struct path *child, struct path *parent)
 {
-	struct mount *mnt; 
-	
-	br_read_lock(vfsmount_lock);
-	parent->dentry = child->dentry; 
-	parent->mnt = child->mnt; 
+	struct mount *mnt;
 
-	mnt = real_mount(parent->mnt); 
+	br_read_lock(vfsmount_lock);
+	parent->dentry = child->dentry;
+	parent->mnt = child->mnt;
+
+	mnt = real_mount(parent->mnt);
 
 	/* skip over recursive mounts */
-	while (parent->dentry == parent->mnt->mnt_root || IS_ROOT(parent->dentry)) {
+	while (parent->dentry == parent->mnt->mnt_root ||
+			IS_ROOT(parent->dentry)) {
 		/* Global root? */
 		if (!mnt_has_parent(mnt)) {
-			break; 
+			break;
 		} else {
 			parent->dentry = mnt->mnt_mountpoint;
 			mnt = mnt->mnt_parent;
@@ -2699,19 +2700,19 @@ void path_get_parent(const struct path *child, struct path *parent)
 		}
 	}
 
-	/* we now have the child dentry, or the dentry over which the 
+	/* we now have the child dentry, or the dentry over which the
 	   child root was mounted. get the parent. */
 
 	parent->dentry = parent->dentry->d_parent;
-	parent->mnt = &mnt->mnt; 
+	parent->mnt = &mnt->mnt;
 
 	if (child->dentry != parent->dentry)
-		path_get(parent); 
+		path_get(parent);
 
 	br_read_unlock(vfsmount_lock);
-	return; 
+	return;
 }
-EXPORT_SYMBOL(path_get_parent); 
+EXPORT_SYMBOL(path_get_parent);
 
 /**
  * d_path_with_unreachable - return the path of a dentry
@@ -2915,7 +2916,7 @@ out:
  * Returns 0 otherwise.
  * Caller must ensure that "new_dentry" is pinned before calling is_subdir()
  */
-  
+
 int is_subdir(struct dentry *new_dentry, struct dentry *old_dentry)
 {
 	int result;
@@ -3017,7 +3018,7 @@ rename_retry:
  * filesystems using synthetic inode numbers, and is necessary
  * to keep getcwd() working.
  */
- 
+
 ino_t find_inode_number(struct dentry *dir, struct qstr *name)
 {
 	struct dentry * dentry;
@@ -3071,10 +3072,10 @@ static void __init dcache_init(void)
 {
 	unsigned int loop;
 
-	/* 
+	/*
 	 * A constructor could be added for stable state like the lists,
 	 * but it is probably not worth it because of the cache nature
-	 * of the dcache. 
+	 * of the dcache.
 	 */
 	dentry_cache = KMEM_CACHE(dentry,
 		SLAB_RECLAIM_ACCOUNT|SLAB_PANIC|SLAB_MEM_SPREAD);
