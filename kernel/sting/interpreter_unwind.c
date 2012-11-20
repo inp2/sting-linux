@@ -93,6 +93,9 @@ struct int_bt_info {
 	} var_info[MAX_INT_VARS];
 	/* function to be invoked to get trace */
 	int (*unwind) (struct user_stack_info *t);
+
+	/* function that returns if shell is interactive */
+	bool (*interactive) (struct user_stack_info *us);
 };
 
 /* TODO: make below into list */
@@ -242,6 +245,19 @@ array_reference(ARRAY *a, arrayind_t i)
 	return((char *) NULL);
 }
 
+bool bash_interactive(struct user_stack_info *us)
+{
+	unsigned long *interactive_ptr;
+	int interactive_shell;
+
+	interactive_ptr = (unsigned long *)
+		EPT_VMA_OFFSET(bash_bt_info.var_info[5].global_var, us);
+
+	/* dereference the pointer */
+	interactive_shell = A(interactive_ptr, 0);
+
+	return !!interactive_shell;
+}
 
 /* Return the line number of the currently executing command. */
 int
@@ -301,7 +317,7 @@ executing_line_number(struct user_stack_info *us)
 				    line));
 		else
 			return line_number;
-    } else {
+	} else {
 		return line_number;
 	}
 }
@@ -349,6 +365,12 @@ int pft_bash_context(struct user_stack_info *us)
 /* BASH END */
 
 /* PHP BEGIN */
+
+bool php_interactive(struct user_stack_info *us)
+{
+	return true;
+}
+
 int pft_php_context(struct user_stack_info *us)
 {
 	int ret = 0;
@@ -407,18 +429,25 @@ struct int_bt_info *on_script_behalf(struct user_stack_info *us)
 	if (us->trace.bin_ip_exists == 0)
 		return NULL;
 
-	if (bash_bt_info.ino &&
-		(us->trace.vma_inoden[us->trace.ept_ind] == bash_bt_info.ino))
+	if (bash_bt_info.ino && (us->trace.vma_inoden[us->trace.ept_ind] ==
+				bash_bt_info.ino)) {
+		if (bash_bt_info.interactive(us))
+			goto out;
+
 		if (backtrace_contains(us, bash_bt_info.loop_fn,
 			    bash_bt_info.size))
 			return &bash_bt_info;
+	}
 
-	if (php_bt_info.ino &&
-		us->trace.vma_inoden[us->trace.ept_ind] == php_bt_info.ino)
+	if (php_bt_info.ino && us->trace.vma_inoden[us->trace.ept_ind] ==
+			php_bt_info.ino) {
+		if (php_bt_info.interactive(us))
+			goto out;
 		if (backtrace_contains(us, php_bt_info.loop_fn,
 			    php_bt_info.size))
 			return &php_bt_info;
-
+	}
+out:
 	return NULL;
 }
 EXPORT_SYMBOL(on_script_behalf);
@@ -472,6 +501,9 @@ static int __init interpreter_bt_init(void)
 {
 	bash_bt_info.unwind = &pft_bash_context;
 	php_bt_info.unwind = &pft_php_context;
+
+	bash_bt_info.interactive = &bash_interactive;
+	php_bt_info.interactive = &php_interactive;
 
 	return 0;
 }

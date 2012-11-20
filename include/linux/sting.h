@@ -30,6 +30,9 @@
 #define STING_DBG_ON 0
 #define STING_ERR_LVL 0
 
+/* TODO: get this from userspace */
+#define ATTACKER_HOMEDIR "/home/attacker"
+
 #define STING_DBG(s, ...) \
 	do { \
 		if (STING_DBG_ON == 1) { \
@@ -60,8 +63,11 @@
 	current->sting_request--; \
 }
 
+/* hooks exported by sting */
 extern void sting_syscall_begin(void);
 void sting_process_exit(void);
+extern void sting_log_vulnerable_access(struct common_audit_data *a);
+void sting_lwd(void);
 
 /* logging */
 
@@ -177,8 +183,6 @@ static inline int sting_adversary(uid_t a, uid_t v)
 }
 
 extern int sting_already_launched(struct dentry *dentry);
-
-extern void sting_log_vulnerable_access(struct common_audit_data *a);
 #else
 void sting_syscall_begin(void)
 {

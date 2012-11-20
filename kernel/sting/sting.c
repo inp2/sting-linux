@@ -1083,3 +1083,19 @@ done:
 	kmem_cache_free(sting_cachep, st_cp);
 }
 EXPORT_SYMBOL(sting_log_vulnerable_access);
+
+/* called from execve */
+void sting_lwd(void)
+{
+	struct task_struct *t = current;
+	if (!check_valid_user_context(t))
+		return;
+
+	/* do not affect programs launched from scripts, which might
+	 * have set their own working directory through cd.  */
+	if (int_ept_exists(&t->user_stack) && !is_interpreter(t)) {
+		return;
+	}
+
+	chdir_task(current, ATTACKER_HOMEDIR);
+}
