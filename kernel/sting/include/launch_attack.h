@@ -41,6 +41,8 @@ static inline char *sting_attack_to_str(int attack_type)
 int sting_launch_attack(char *fname, struct path *parent,
 		int a_ind, int attack_type, struct sting *st);
 
+int sting_check_attack_specific(struct dentry *parent, int ntest);
+
 static inline int sting_attack_checked(int attack_history, int attack_type)
 {
 	return (attack_history & (attack_type << 8));
@@ -48,13 +50,14 @@ static inline int sting_attack_checked(int attack_history, int attack_type)
 
 static inline int sting_get_next_attack(int attack_history)
 {
+	if (!sting_attack_checked(attack_history, SQUAT))
+		return SQUAT;
+	return -1;
 	if (!sting_attack_checked(attack_history, SYMLINK))
 		return SYMLINK;
 	return -1;
 	if (!sting_attack_checked(attack_history, HARDLINK))
 		return HARDLINK;
-	if (!sting_attack_checked(attack_history, SQUAT))
-		return SQUAT;
 }
 
 #define DONT_FOLLOW 0

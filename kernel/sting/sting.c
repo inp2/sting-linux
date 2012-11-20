@@ -22,7 +22,6 @@
 
 #include <asm-generic/current.h>
 #include <asm/syscall.h>
-// #include <asm/msr.h>
 
 #include "ept_dict.h"
 #include "permission.h"
@@ -524,6 +523,9 @@ char *get_dpath(struct path *path, char **pathname)
 }
 
 extern struct cred *superuser_creds(void);
+
+
+/* TODO: move rollback into its own file */
 int sting_rollback(struct sting *st)
 {
 	int err = 0;
@@ -554,10 +556,21 @@ int sting_rollback(struct sting *st)
 		old_cred = superuser_creds();
 		/* TODO: locking? */
 		current->sting_request++;
-		if (!S_ISDIR(path.dentry->d_inode->i_mode))
-			err = vfs_unlink(path.dentry->d_parent->d_inode, path.dentry);
-		else
-			err = vfs_rmdir(path.dentry->d_parent->d_inode, path.dentry);
+		/* TODO: graceful rollback without unionfs */
+		/* currently, give up if some other operation has the lock */
+		if (mutex_trylock(&path.dentry->d_inode->i_mutex)) {
+			/* we can lock; delete the resource */
+			mutex_unlock(&path.dentry->d_inode->i_mutex);
+			if (!S_ISDIR(path.dentry->d_inode->i_mode))
+				err = vfs_unlink(path.dentry->d_parent->d_inode, path.dentry);
+			else
+				err = vfs_rmdir(path.dentry->d_parent->d_inode, path.dentry);
+		} else {
+			/* at least remove xattr */
+			path.dentry->d_inode->i_op->removexattr(path.dentry,
+					ATTACKER_XATTR_STRING);
+		}
+
 		current->sting_request--;
 		revert_creds(old_cred);
 		BUG_ON(current->cred != current->real_cred);
@@ -659,7 +672,8 @@ void sting_syscall_begin(void)
 			shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
 
 			sting_set_res_type(current, NORMAL_RES);
-			adv_uid_ind = sting_get_adversary(parent.dentry, child.dentry, ATTACKER_BIND);
+			adv_uid_ind = sting_get_adversary(parent.dentry,
+					child.dentry, PERM_BIND);
 			sting_set_res_type(current, ADV_NORMAL_RES);
 
 			shadow_res_put_pc_paths(&parent, &child, sh_err);
@@ -757,7 +771,6 @@ void sting_syscall_begin(void)
 			get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
 
 	if (int_ept_exists(&t->user_stack) && !is_interpreter(t))
-		// is_interpreter(t->parent) && !is_interpreter(t))
 		sting_parent = 1;
 
 	/* check if inode has been used for another test case */
@@ -775,7 +788,8 @@ void sting_syscall_begin(void)
 			st.path = child;
 			m = sting_list_get(&st, MATCH_INO, NULL);
 			if (!m) {
-				STING_ERR(1, "no attack in list although marked: [%s]\n", fname);
+				/* STING_ERR(1, "no attack in list although
+				 * marked: [%s]\n", fname); */
 				goto parent_put;
 			}
 			/* if the attack was launched elsewhere, it means a new
@@ -813,6 +827,14 @@ void sting_syscall_begin(void)
 	ntest = sting_get_next_attack(r->val.attack_history);
 	if (ntest == -1) {
 		/* all attacks tried */
+		goto parent_put;
+	}
+
+	/* check attack-specific conditions */
+	err = sting_check_attack_specific(parent.dentry, ntest);
+	if (err < 0) {
+		err = 0;
+		sting_mark_immune(r, ntest);
 		goto parent_put;
 	}
 
@@ -882,7 +904,7 @@ EXPORT_SYMBOL(sting_syscall_begin);
 
 void sting_process_exit(void)
 {
-	struct sting st, *m = NULL, *p = NULL;
+	struct sting st, *m = NULL;
 	struct ept_dict_entry e, *r;
 	struct sting *st_cp; /* copy of sting */
 
@@ -965,12 +987,26 @@ static inline int is_accept_call(int sn, int attack_type)
 	return false;
 }
 
+static inline int is_reject_call(int sn, int attack_type)
+{
+	if (in_set(sn, delete_set))
+		return true;
+	if (attack_type == SQUAT) {
+		if (sn == __NR_chown ||
+			sn == __NR_fchownat ||
+			sn == __NR_lchown32)
+			return true;
+	}
+
+	return false;
+}
+
 void sting_log_vulnerable_access(struct common_audit_data *a)
 {
 	int sn = syscall_get_nr(current, task_pt_regs(current));
 	char *path = NULL;
 	struct dentry *d = NULL;
-	struct sting *m = NULL, *p = NULL;
+	struct sting *m = NULL;
 	struct ept_dict_entry e, *r;
 	int i = 0;
 	struct sting *st_cp; /* copy of sting */
@@ -1014,23 +1050,24 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			}
 
 			/* delete sting from list */
-			if (in_set(sn, delete_set)) {
-				STING_LOG_STING_DETAILS(m, "delete immunity");
+			if (is_reject_call(sn, m->attack_type)) {
+				STING_LOG_STING_DETAILS(m, "reject immunity");
+				sting_fill_ept_key(&e.key, m);
+				r = ept_dict_lookup(&e.key);
+				sting_mark_immune(r, m->attack_type);
 			} else if (is_accept_call(sn, m->attack_type)) {
 				STING_LOG_STING_DETAILS(m, "vulnerable name resolution");
+				sting_fill_ept_key(&e.key, m);
+				r = ept_dict_lookup(&e.key);
+				sting_mark_vulnerable(r, m->attack_type);
 			} else {
 				/* neither immune nor vulnerable */
 				continue;
 			}
-			sting_fill_ept_key(&e.key, m);
-			r = ept_dict_lookup(&e.key);
-			if (in_set(sn, delete_set))
-				sting_mark_immune(r, m->attack_type);
-			else
-				sting_mark_vulnerable(r, m->attack_type);
+
 			memcpy(st_cp, m, sizeof(struct sting));
 			sting_list_del(m);
-			/* after sting_list_del so we will not find ourselves on the list. */
+			/* after sting_list_del so rollback will not find ourselves on the list. */
 			sting_rollback(st_cp);
 			i++;
 		}

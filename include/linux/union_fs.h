@@ -39,7 +39,7 @@ struct dentry *unionfs_lower_dentry_idx_export(
 				const struct dentry *dent,
 				int index)
 {
-
+	return NULL;
 }
 #endif
 

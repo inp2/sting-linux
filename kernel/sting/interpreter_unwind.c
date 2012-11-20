@@ -190,10 +190,11 @@ var_lookup (const char *name, VAR_CONTEXT *vcontext)
 	SHELL_VAR *v;
 
 	v = (SHELL_VAR *)NULL;
-	for (vc = vcontext; vc; vc = (VAR_CONTEXT *) A(vc, O(vc, down)))
+	for (vc = vcontext; vc; vc = (VAR_CONTEXT *) A(vc, O(vc, down))) {
 		v = hash_lookup(name, (HASH_TABLE *) A(vc, O(vc, table)));
 		if (v)
 			break;
+	}
 
 	return v;
 }

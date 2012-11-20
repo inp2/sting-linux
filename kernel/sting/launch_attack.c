@@ -357,7 +357,7 @@ int sting_symlink(char *target, struct path *s_parent,
 	if (error)
 		goto unlock;
 
-	/* copy of vfs_symlink, change may_create*/
+	/* copy of vfs_symlink, change may_create */
 	error = may_create_noexist(dir);
 
 	if (error)
@@ -440,8 +440,7 @@ int file_create(char __user *fname, struct path* parent,
 		if (ret == -EEXIST)
 			ret = 0;
 		if (ret < 0) {
-			printk(KERN_INFO STING_MSG "Can't create file/dir %s:
-					%d?\n", fname, ret);
+			printk(KERN_INFO STING_MSG "Can't create file/dir %s: %d?\n", fname, ret);
 		}
 		/* goto mark; */
 	} else if ((reason == REASON_SQUAT) || (reason ==
@@ -844,6 +843,44 @@ out:
 	return ret;
 }
 
+static int chdir_task(struct task_struct *task, char *filename)
+{
+	struct path path;
+	int error;
+	mm_segment_t old_fs = get_fs();
+
+	STING_SYSCALL(error = user_path_dir(filename, &path));
+	if (error)
+		goto out;
+
+	set_fs_pwd(task->fs, &path);
+
+	path_put(&path);
+out:
+	return error;
+
+}
+
+#if 0
+int pft_cwd_target(struct pf_packet_context *p, void *target_specific_data)
+{
+	int rc = 0;
+
+	/* if program has been launched from a script, then
+	 * do not change launching directory (e.g., ls .)
+	 */
+
+	if (int_ept_exists(&t->user_stack) && !is_interpreter(t))
+		chdir_task(current, ATTACKER_HOMEDIR);
+	}
+
+	if (rc < 0)
+		return rc;
+	else
+		return PF_CONTINUE;
+}
+#endif
+
 static int get_attacked_path(char *fname, struct path *path)
 {
 	int err = 0;
@@ -877,6 +914,32 @@ void temp_restore_cwd(struct path *old)
 {
 	path_put(old); /* due to get_fs_pwd */
 	temp_set_fs_pwd(current->fs, old);
+}
+
+int sting_check_attack_specific(struct dentry *parent, int ntest)
+{
+	/* attack-specific condition for squat: "shared" directory */
+	/* a squat attack is possible when some both some non-adversary to
+	 * victim and adversary can create resources of varying integrity in
+	 * the directory.  such directories are "shared".
+	 * for simplicity, we assume the only non-adversary is the victim
+	 * itself. */
+	uid_t *vic_ug_list;
+	uid_t root_ug_list[] = {0};
+	int ret = 0;
+
+	if (current->cred->fsuid == 0)
+		vic_ug_list = root_ug_list;
+	else
+		vic_ug_list = get_ug_list(current->cred->fsuid);
+
+	/* get group list for current process, and for adversary */
+	if (ntest == SQUAT) {
+		/* does victim have write permission to directory? */
+		ret = uid_has_perm(vic_ug_list, parent, NULL, PERM_PREBIND);
+		/* we know adversary has permission already. */
+	}
+	return ret;
 }
 
 /**
@@ -1041,6 +1104,7 @@ int sting_launch_attack(char *source, struct path *parent,
 	/* get changed path (we do it in caller itself) */
 	if (tret == 0) {
 		int r;
+
 		sting_set_res_type(current, ADV_NORMAL_RES);
 		/* get reference to launched attack's dentry */
 		/* TODO: reduce the number of name resolutions by using vfs
@@ -1055,9 +1119,9 @@ int sting_launch_attack(char *source, struct path *parent,
 			tret = r;
 		}
 
+		sting->target_path.dentry = NULL;
+		sting->target_path.mnt = NULL;
 		if (attack_type & (SYMLINK | HARDLINK)) {
-			sting->target_path.dentry = NULL;
-			sting->target_path.mnt = NULL;
 			r = kern_path(target, 0, &sting->target_path);
 			if (r < 0 && r != -ENOENT) {
 				STING_ERR(0,

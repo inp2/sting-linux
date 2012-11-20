@@ -187,6 +187,17 @@ static int __init sting_permission_init(void)
 }
 fs_initcall(sting_permission_init);
 
+/* get the group list for @uid from @uid_array */
+uid_t *get_ug_list(uid_t u)
+{
+	int i = 0;
+	for (i = 0; uid_array[i][0]; i++)
+		if (uid_array[i][0] == u)
+			return uid_array[i];
+	return NULL;
+}
+EXPORT_SYMBOL(get_ug_list);
+
 /* fill a group_info from a user-space array - it must be allocated already
    - kernel version using memcpy instead of copy_from_user */
 static int groups_from_list(struct group_info *group_info,
@@ -405,16 +416,16 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
 
 #define ND_INODE(nd) nd.path.dentry->d_inode
 
-static int adv_has_perm(int adv_ind, struct dentry *parent,
+int uid_has_perm(uid_t *ug_list, struct dentry *parent,
 		struct dentry *child, int flags)
 {
 	int match = UID_NO_MATCH, ret = 0;
 	struct cred *old_cred;
 
 	/* Change creds to possible attacker's */
-	old_cred = set_creds(uid_array[adv_ind]);
+	old_cred = set_creds(ug_list);
 
-	if ((flags & ATTACKER_BIND) && child) {
+	if ((flags & PERM_BIND) && child) {
 		if (child->d_inode) {
 			/* The file exists already, check delete permission */
 			if (S_ISDIR(child->d_inode->i_mode))
@@ -426,7 +437,7 @@ static int adv_has_perm(int adv_ind, struct dentry *parent,
 		}
 	}
 
-	if ((flags & ATTACKER_BIND) || (flags & ATTACKER_PREBIND)) {
+	if ((flags & PERM_BIND) || (flags & PERM_PREBIND)) {
 		/* Check creation, disregarding actual file existence */
 		ret = may_create_noexist(parent->d_inode);
 		if (ret)
@@ -441,10 +452,11 @@ no_match:
 	revert_creds(old_cred);
 	return (ret < 0) ? ret : match;
 }
+EXPORT_SYMBOL(uid_has_perm);
 
 /**
  * sting_get_adversary() - Does there exist a uid with @flags permission on @filename?
- * @flags: %ATTACKER_BIND, %ATTACKER_PREBIND
+ * @flags: %PERM_BIND, %PERM_PREBIND
  * @filename: name of file to check permissions on
  *
  * Returns index in uid_array of attacker if one exists, UID_NO_MATCH if not, -errno if error.
@@ -467,7 +479,7 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 	if (u != current->cred->fsuid)
 		for (i = 0; uid_array[i][0]; i++)
 			if (uid_array[i][0] == u) {
-				ret = adv_has_perm(i, parent, child, flags);
+				ret = uid_has_perm(uid_array[i], parent, child, flags);
 				if (ret == 1) {
 					match = i;
 					goto found;
@@ -481,7 +493,7 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 			continue;
 		for (j = 1; uid_array[i][j]; j++) {
 			if (g == uid_array[i][j]) {
-				ret = adv_has_perm(i, parent, child, flags);
+				ret = uid_has_perm(uid_array[i], parent, child, flags);
 				if (ret == 1) {
 					match = i;
 					goto found;
@@ -494,7 +506,7 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags)
 	if (sting_adversary_uid != -1)
 		for (i = 0; uid_array[i][0]; i++)
 			if (uid_array[i][0] == sting_adversary_uid) {
-				ret = adv_has_perm(i, parent, child, flags);
+				ret = uid_has_perm(uid_array[i], parent, child, flags);
 				if (ret == 1) {
 					match = i;
 					goto found;

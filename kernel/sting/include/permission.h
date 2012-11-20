@@ -1,6 +1,6 @@
 /* permissions module */
-#define ATTACKER_BIND 0x1
-#define ATTACKER_PREBIND 0x2
+#define PERM_BIND 0x1
+#define PERM_PREBIND 0x2
 
 /* Maximum number of users in the system */
 #define MAX_USERS 256
@@ -19,5 +19,8 @@ int sting_get_adversary(struct dentry *parent, struct dentry *child, int flags);
 struct cred *set_creds(uid_t *ug_list);
 struct cred *superuser_creds(void);
 int may_create_noexist(struct inode *dir);
+uid_t *get_ug_list(uid_t u);
+int uid_has_perm(uid_t *ug_list, struct dentry *parent,
+	struct dentry *child, int flags);
 
 extern uid_t uid_array[MAX_USERS][GRP_MEMB_MAX];

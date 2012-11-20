@@ -81,7 +81,7 @@ extern struct rchan *sting_log_rchan;
 
 #define STING_LOG_STING_DETAILS(m, str) { \
 	STING_LOG(str ": entrypoint: [%s:%lx:%s,%lu], resource: [%s], " \
-				"system call: [%d], attack_type: [%s], \
+				"system call: [%d], attack_type: [%s], " \
 				"adversary uid: [%d], victim uid: [%d]\n", \
 		m->comm, m->offset, (m->int_filename ? \
 			m->int_filename : "(null)"), \
