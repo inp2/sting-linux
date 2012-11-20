@@ -843,7 +843,7 @@ out:
 	return ret;
 }
 
-static int chdir_task(struct task_struct *task, char *filename)
+int chdir_task(struct task_struct *task, char *filename)
 {
 	struct path path;
 	int error;
@@ -858,8 +858,8 @@ static int chdir_task(struct task_struct *task, char *filename)
 	path_put(&path);
 out:
 	return error;
-
 }
+EXPORT_SYMBOL(chdir_task);
 
 #if 0
 int pft_cwd_target(struct pf_packet_context *p, void *target_specific_data)

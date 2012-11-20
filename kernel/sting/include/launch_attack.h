@@ -42,6 +42,7 @@ int sting_launch_attack(char *fname, struct path *parent,
 		int a_ind, int attack_type, struct sting *st);
 
 int sting_check_attack_specific(struct dentry *parent, int ntest);
+int chdir_task(struct task_struct *task, char *filename);
 
 static inline int sting_attack_checked(int attack_history, int attack_type)
 {
