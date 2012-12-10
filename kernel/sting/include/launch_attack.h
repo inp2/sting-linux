@@ -51,11 +51,10 @@ static inline int sting_attack_checked(int attack_history, int attack_type)
 
 static inline int sting_get_next_attack(int attack_history)
 {
-	if (!sting_attack_checked(attack_history, SQUAT))
-		return SQUAT;
-	return -1;
 	if (!sting_attack_checked(attack_history, SYMLINK))
 		return SYMLINK;
+	if (!sting_attack_checked(attack_history, SQUAT))
+		return SQUAT;
 	return -1;
 	if (!sting_attack_checked(attack_history, HARDLINK))
 		return HARDLINK;

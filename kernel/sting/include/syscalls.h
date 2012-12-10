@@ -88,6 +88,110 @@ static int use_set[] = {
 	-1
 };
 
+static int symlink_accept_set[] = {
+	/* create-like */
+	__NR_execve,
+	__NR_chmod,
+	__NR_mount,
+	__NR_utime,
+	__NR_readlink,
+	__NR_truncate,
+	__NR_chown,
+	__NR_truncate64,
+	__NR_lchown32,
+	__NR_mount,
+	__NR_setxattr,
+	__NR_lsetxattr,
+	__NR_removexattr,
+	__NR_lremovexattr,
+	__NR_utimes,
+	__NR_fchownat,
+	__NR_futimesat,
+	__NR_readlinkat,
+	__NR_fchmodat,
+	__NR_read,
+	__NR_readv,
+	__NR_write,
+	__NR_writev,
+	__NR_pwrite64,
+	__NR_pwritev,
+	__NR_sendmmsg,
+	__NR_sendfile,
+	__NR_sendfile64,
+	__NR_readdir,
+	__NR_recvmmsg,
+	__NR_pread64,
+	__NR_preadv,
+	-1
+};
+
+static int hardlink_accept_set[] = {
+	__NR_execve,
+	__NR_chmod,
+	__NR_mount,
+	__NR_utime,
+	__NR_truncate,
+	__NR_chown,
+	__NR_truncate64,
+	__NR_lchown32,
+	__NR_mount,
+	__NR_setxattr,
+	__NR_lsetxattr,
+	__NR_removexattr,
+	__NR_lremovexattr,
+	__NR_utimes,
+	__NR_fchownat,
+	__NR_futimesat,
+	__NR_fchmodat,
+	__NR_read,
+	__NR_readv,
+	__NR_write,
+	__NR_writev,
+	__NR_pwrite64,
+	__NR_pwritev,
+	__NR_sendmmsg,
+	__NR_sendfile,
+	__NR_sendfile64,
+	__NR_recvmmsg,
+	__NR_pread64,
+	__NR_preadv,
+	-1
+};
+
+static int squat_accept_set[] = {
+	__NR_execve,
+	__NR_chmod,
+	__NR_mount,
+	__NR_utime,
+	__NR_truncate,
+	__NR_chown,
+	__NR_truncate64,
+	__NR_lchown32,
+	__NR_mount,
+	__NR_setxattr,
+	__NR_lsetxattr,
+	__NR_removexattr,
+	__NR_lremovexattr,
+	__NR_utimes,
+	__NR_fchownat,
+	__NR_futimesat,
+	__NR_fchmodat,
+	__NR_read,
+	__NR_readv,
+	__NR_write,
+	__NR_writev,
+	__NR_pwrite64,
+	__NR_pwritev,
+	__NR_sendmmsg,
+	__NR_sendfile,
+	__NR_sendfile64,
+	__NR_recvmmsg,
+	__NR_pread64,
+	__NR_preadv,
+	/* __NR_socketcall (connect) */
+	-1
+};
+
 /* These system calls won't follow the last component if it is a
  * symlink, or will act on the link itself.
  * If in this set, LOOKUP_FOLLOW should not be set for the name
@@ -241,16 +345,16 @@ static inline int in_spcs_use_set(struct pt_regs *ptregs)
 	int sn = ptregs->orig_ax;
 
 	if (sn == __NR_open) {
-		if (((int) ptregs->cx) & (O_CREAT))
-			return 0;
+		if (((int) ptregs->cx) & !(O_CREAT))
+			return 1;
 	} else if (sn == __NR_openat) {
-		if (((int) ptregs->dx) & (O_CREAT))
-			return 0;
-	} else if (!connect_call(sn)) {
-		return 0;
+		if (((int) ptregs->dx) & !(O_CREAT))
+			return 1;
+	} else if (connect_call(sn)) {
+		return 1;
 	}
 
-	return 1;
+	return 0;
 }
 
 static inline int in_spcs_nosym_set(struct pt_regs *ptregs)
@@ -264,6 +368,16 @@ static inline int in_spcs_nosym_set(struct pt_regs *ptregs)
 		((sn == __NR_name_to_handle_at) && (!(((int) ptregs->di) &
 				AT_SYMLINK_FOLLOW))) ||
 	    bind_call(sn))
+		return 1;
+
+	return 0;
+}
+
+static inline int in_spcs_squat_accept_set(struct pt_regs *ptregs)
+{
+	int sn = ptregs->orig_ax;
+
+	if (connect_call(sn))
 		return 1;
 
 	return 0;
@@ -283,6 +397,9 @@ static inline int in_set(int sn, int *array)
 		return 1;
 	else if ((array == nosym_set) &&
 			(in_spcs_nosym_set(ptregs)))
+		return 1;
+	else if ((array == squat_accept_set) &&
+			(in_spcs_squat_accept_set(ptregs)))
 		return 1;
 
 	for (i = 0; array[i] != -1; i++)
