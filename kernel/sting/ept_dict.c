@@ -10,8 +10,9 @@
 
 #include <asm/syscall.h>
 
+#include <linux/ept_dict.h>
+
 #include "dict.h"
-#include "ept_dict.h"
 
 /*
  *	file /sys/kernel/debug/ept_dict to get stats of

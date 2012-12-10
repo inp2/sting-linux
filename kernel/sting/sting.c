@@ -23,7 +23,8 @@
 #include <asm-generic/current.h>
 #include <asm/syscall.h>
 
-#include "ept_dict.h"
+#include <linux/ept_dict.h>
+
 #include "permission.h"
 #include "syscalls.h"
 #include "launch_attack.h"
@@ -357,8 +358,6 @@ void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 		st->pid = t->parent->pid;
 	else
 		st->pid = t->pid;
-
-	printk(KERN_INFO STING_MSG "pid: %d\n", st->pid);
 
 	st->offset = ept_offset_get(&t->user_stack);
 	st->ino = ept_inode_get(&t->user_stack);

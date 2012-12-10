@@ -51,12 +51,21 @@ struct ept_dict_val {
 	int attack_history;
 };
 
+#ifdef __KERNEL__
 struct ept_dict_entry {
 	struct hlist_node list;
 	struct ept_dict_key key;
 	struct ept_dict_val val;
 };
+#else
+struct ept_dict_entry {
+	void *next, **pprev;
+	struct ept_dict_key key;
+	struct ept_dict_val val;
+};
+#endif
 
+#ifdef __KERNEL__
 struct ept_dict_entry *ept_dict_lookup(struct ept_dict_key *key);
 void ept_dict_entry_remove(struct ept_dict_key *key);
 void ept_dict_free(void);
@@ -75,3 +84,5 @@ extern struct rchan *ept_dict_dump_rchan;
 	relay_write(ept_dict_dump_rchan, p, n); \
 	current->sting_request--; \
 }
+
+#endif
