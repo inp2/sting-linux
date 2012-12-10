@@ -236,7 +236,7 @@ out:
 }
 
 static const struct file_operations utility_progs_fops = {
-	.write  = utility_progs_write,
+	.write	= utility_progs_write,
 };
 
 static int __init utility_progs_init(void)
@@ -285,7 +285,7 @@ void sting_list_add(struct sting *st)
 	STING_LOG("added [%s:%lx:%s:%lu] accessing [%s] to sting_list for "
 			"adversary [%d] and victim [%d]\n",
 			current->comm, news->offset,
-			int_ept_exists(&current->user_stack) ?  news->int_filename : "(null)",
+			int_ept_exists(&current->user_stack) ?	news->int_filename : "(null)",
 			int_ept_exists(&current->user_stack) ? news->int_lineno : 0,
 			news->path.dentry->d_name.name,
 			uid_array[news->adv_uid_ind][0], current->cred->fsuid
@@ -330,8 +330,8 @@ struct sting *sting_list_get(struct sting *st, int st_flags, struct sting *start
 			continue;
 		if ((st_flags & MATCH_INO) && (!
 			((t->path_ino == st->path_ino) ||
-			(t->target_path_ino && (t->target_path_ino ==
-									st->path_ino)))
+			(t->target_path_ino &&
+				(t->target_path_ino == st->path_ino)))
 			))
 			continue;
 		if (start && !memcmp(start, t, sizeof(struct sting)))
@@ -346,18 +346,28 @@ struct sting *sting_list_get(struct sting *st, int st_flags, struct sting *start
 	return NULL;
 }
 
+static int launch_from_script(struct task_struct *t)
+{
+	return (int_ept_exists(&t->user_stack) && !is_interpreter(t));
+}
+
 void task_fill_sting(struct sting *st, struct task_struct *t, int sting_parent)
 {
-	if (sting_parent)
+	if (sting_parent == 1)
 		st->pid = t->parent->pid;
 	else
 		st->pid = t->pid;
+
+	printk(KERN_INFO STING_MSG "pid: %d\n", st->pid);
+
 	st->offset = ept_offset_get(&t->user_stack);
 	st->ino = ept_inode_get(&t->user_stack);
+
 	if (sting_parent)
 		get_task_comm(st->comm, t->parent);
 	else
 		get_task_comm(st->comm, t);
+
 	/* parent's interpreter context is stored in child during fork,
 	 * if child itself is not an interpreter */
 	if (int_ept_exists(&t->user_stack))
@@ -601,13 +611,8 @@ void sting_syscall_begin(void)
 	int err = 0, sh_err = 0;
 	struct sting st, *m;
 	struct path parent, child;
-	int is_ls = 0;
+	/* int is_ls = 0; */
 	char *pfname = kzalloc(256, GFP_ATOMIC);
-
-	/* should sting be associated with this process (normal),
-	 * or parent (utility programs)? */
-	int sting_parent = 0;
-	int sn = syscall_get_nr(current, task_pt_regs(current));
 
 #if 0
 	if (t->cred->fsuid == 0)
@@ -770,9 +775,6 @@ void sting_syscall_begin(void)
 			r->key.int_filename ? r->key.int_filename : "(null)", r->key.int_lineno,
 			get_dpath(&parent, &pfname), get_last2(fname), r->val.dac.adversary_access);
 
-	if (int_ept_exists(&t->user_stack) && !is_interpreter(t))
-		sting_parent = 1;
-
 	/* check if inode has been used for another test case */
 	if (child.dentry != NULL) {
 		err = sting_already_launched(child.dentry);
@@ -804,14 +806,14 @@ void sting_syscall_begin(void)
 			}
 
 			memcpy(&st, m, sizeof(struct sting));
-			task_fill_sting(&st, t, sting_parent);
+			task_fill_sting(&st, t, launch_from_script(t));
 			sting_list_add(&st);
 			goto parent_put;
 		}
 	}
 
 	/* mark immune on retry; don't launch attack */
-	task_fill_sting(&st, t, sting_parent);
+	task_fill_sting(&st, t, launch_from_script(t));
 	m = sting_list_get(&st, MATCH_PID | MATCH_EPT, NULL);
 	if (m) {
 		STING_LOG_STING_DETAILS(m, "retry immunity");
@@ -915,7 +917,11 @@ void sting_process_exit(void)
 	if (!st_cp)
 		return;
 
-	st.pid = current->pid;
+	user_unwind(current);
+	if (valid_user_stack(&current->user_stack))
+		user_interpreter_unwind(&current->user_stack);
+
+	task_fill_sting(&st, current, 0);
 
 	/* find and delete all corresponding stings and mark immune */
 	while (1) {
@@ -946,44 +952,61 @@ EXPORT_SYMBOL(sting_process_exit);
 
 struct dentry *dentry_from_auditdata(struct common_audit_data *a, char *path)
 {
-    struct dentry *dentry = NULL;
-    struct inode *inode = NULL;
+	struct dentry *dentry = NULL;
+	struct inode *inode = NULL;
 
-    strcpy(path, "N/A");
-//  path = kstrdup("N/A", GFP_ATOMIC);
-    if (a) {
-        switch (a->type) {
-            case LSM_AUDIT_DATA_DENTRY: {
-                dentry = a->u.dentry;
-                inode = a->u.dentry->d_inode;
-                break;
-            }
-            case LSM_AUDIT_DATA_INODE: {
-                inode = a->u.inode;
-                dentry = d_find_alias(inode);
-                break;
-            }
-            case LSM_AUDIT_DATA_PATH: {
-                inode = a->u.path.dentry->d_inode;
-                dentry = d_find_alias(inode);
-                break;
-            }
-            default:
-            ;
-        }
-    }
-    if (dentry) {
-        strcpy(path, dentry->d_name.name);
-    }
+	strcpy(path, "N/A");
+	//  path = kstrdup("N/A", GFP_ATOMIC);
+	if (a) {
+		switch (a->type) {
+		case LSM_AUDIT_DATA_DENTRY: {
+			dentry = a->u.dentry;
+			inode = a->u.dentry->d_inode;
+			break;
+		}
+		case LSM_AUDIT_DATA_INODE: {
+			inode = a->u.inode;
+			dentry = d_find_alias(inode);
+			break;
+		}
+		case LSM_AUDIT_DATA_PATH: {
+			inode = a->u.path.dentry->d_inode;
+			dentry = d_find_alias(inode);
+			break;
+		}
+		default:
+		;
+		}
+	}
+	if (dentry) {
+		strcpy(path, dentry->d_name.name);
+	}
 
-    return dentry;
+	return dentry;
 }
 
 /* TODO: move detection to separate file */
 static inline int is_accept_call(int sn, int attack_type)
 {
-	if (in_set(sn, create_set) || in_set(sn, use_set))
-		return true;
+	switch (attack_type) {
+	case SYMLINK:
+		if (in_set(sn, create_set) ||
+				in_set(sn, symlink_accept_set))
+			return true;
+		break;
+	case HARDLINK:
+		if (in_set(sn, hardlink_accept_set))
+			return true;
+		break;
+	case SQUAT:
+		/* TODO: differentiate between creating in squatted
+		 * directories and creating on the squatted file
+		 * using LSM permissions */
+		if (in_set(sn, squat_accept_set))
+			return true;
+		break;
+	}
+
 	return false;
 }
 
@@ -992,6 +1015,8 @@ static inline int is_reject_call(int sn, int attack_type)
 	if (in_set(sn, delete_set))
 		return true;
 	if (attack_type == SQUAT) {
+		/* TODO: check chown argument; if same as current uid,
+		 * then reject */
 		if (sn == __NR_chown ||
 			sn == __NR_fchownat ||
 			sn == __NR_lchown32)
@@ -1031,11 +1056,14 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 //			(in_set(sn, create_set) || in_set(sn, use_set) ||
 //			in_set(sn, delete_set))) {
 		struct sting st;
+
+		user_unwind(current);
+		if (valid_user_stack(&current->user_stack))
+			user_interpreter_unwind(&current->user_stack);
+
 		st.path_ino = d->d_inode->i_ino;
-		if (int_ept_exists(&current->user_stack) && !is_interpreter(current))
-			st.pid = current->parent->pid;
-		else
-			st.pid = current->pid;
+
+		task_fill_sting(&st, current, launch_from_script(current));
 		/* find and delete all corresponding stings and mark vulnerable */
 		while (1) {
 			m = sting_list_get(&st, MATCH_INO | MATCH_PID, m);
@@ -1044,6 +1072,8 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 					STING_LOG("no attack in list although marked: [%s]\n", d->d_name.name);
 				break;
 			}
+
+			i++;
 			if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
 				STING_DBG("another non-adversarial attack ongoing: [%s]\n", d->d_name.name);
 				goto done;
@@ -1069,14 +1099,13 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			sting_list_del(m);
 			/* after sting_list_del so rollback will not find ourselves on the list. */
 			sting_rollback(st_cp);
-			i++;
 		}
 	}
 done:
 	if (d) {
-        if (a->type == LSM_AUDIT_DATA_PATH ||
-            a->type == LSM_AUDIT_DATA_INODE)
-            dput(d);
+		if (a->type == LSM_AUDIT_DATA_PATH ||
+		    a->type == LSM_AUDIT_DATA_INODE)
+		    dput(d);
 	}
 
 	__putname(path);
