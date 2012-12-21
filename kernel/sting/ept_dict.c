@@ -57,7 +57,7 @@ static ssize_t ept_dict_write(struct file *file,
 	int res = 0;
 	int rcount = count; /* real count */
 
-	if (!(*ppos)) {
+	if (total == 0) {
 		/* first input */
 		if (copy_from_user(&total, ubuf, sizeof(int)))
 			return -EFAULT;
@@ -83,6 +83,7 @@ static ssize_t ept_dict_write(struct file *file,
 	if (done == total) {
 		ept_dict_free();
 		res = ept_dict_populate(buf, total);
+		done = total = 0;
 		kfree(buf);
 	}
 
