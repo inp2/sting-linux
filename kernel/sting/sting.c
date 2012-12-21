@@ -18,7 +18,6 @@
 #include <linux/debugfs.h>
 #include <linux/types.h>
 #include <linux/mount.h>
-#include <linux/sort.h>
 
 #include <asm-generic/current.h>
 #include <asm/syscall.h>
@@ -28,7 +27,6 @@
 #include "permission.h"
 #include "syscalls.h"
 #include "launch_attack.h"
-#include "utility.h"
 #include "shadow_resolution.h"
 #include "interpreter_unwind.h"
 
@@ -136,124 +134,6 @@ static const struct file_operations sting_monitor_pid_fops = {
 	   .write  = sting_monitor_pid_write,
 	   .read   = sting_monitor_pid_read,
 };
-
-/* file /sys/kernel/debug/utility_progs */
-
-#define MAX_UTIL_PROGS 32
-static int n_utility_progs = 0;
-static ino_t utility_progs[MAX_UTIL_PROGS];
-
-#if 0
-static int up_find(ino_t ino)
-{
-	int low = 0;
-	int high = n_utility_progs;
-	int mid;
-
-	while (low < high) {
-		mid = (low + high) / 2;
-		if (utility_progs[mid] == ino)
-			return 1;
-		else if (utility_progs[mid] > ino)
-			high = mid;
-		else
-			low = mid + 1;
-	}
-	return 0;
-}
-#endif
-
-static int up_cmp(const void *ap, const void *bp)
-{
-	const ino_t a = *(const ino_t *) ap;
-	const ino_t b = *(const ino_t *) bp;
-
-	if (a > b)
-		return 1;
-	if (a < b)
-		return -1;
-	return 0;
-}
-
-/* example: 26484420 */
-static int up_line_load(char *data)
-{
-	utility_progs[n_utility_progs] =
-		simple_strtoul(data, NULL, 0);
-	if (!utility_progs[n_utility_progs])
-		return -EINVAL;
-	n_utility_progs++;
-
-	return 0;
-}
-
-static int up_load(char *data, size_t len)
-{
-	char **r = &data;
-	char *l = NULL;
-	int ret = 0;
-
-	/* null terminate */
-	*(data + len - 1) = 0;
-
-	/* separate into tokens */
-	while ((l = strsep(r, "\n"))) {
-		/* parse each line */
-		ret = up_line_load(l);
-	}
-
-	return (ret == 0) ? len : ret;
-}
-
-static ssize_t
-utility_progs_write(struct file *filp, const char __user *buf,
-				   size_t count, loff_t *ppos)
-{
-	char *page;
-	ssize_t length;
-
-	if (count >= PAGE_SIZE)
-		return -ENOMEM;
-	if (*ppos != 0) {
-		/* No partial writes. */
-		return -EINVAL;
-	}
-	page = (char *)get_zeroed_page(GFP_KERNEL);
-	if (!page)
-		return -ENOMEM;
-	length = -EFAULT;
-	if (copy_from_user(page, buf, count))
-		goto out;
-
-	length = -EINVAL;
-	length = up_load(page, count);
-
-	if (length >= 0)
-		sort(utility_progs, n_utility_progs, sizeof(ino_t), up_cmp, NULL);
-
-out:
-	free_page((unsigned long) page);
-	return length;
-}
-
-static const struct file_operations utility_progs_fops = {
-	.write	= utility_progs_write,
-};
-
-static int __init utility_progs_init(void)
-{
-	struct dentry *utility_progs;
-
-	utility_progs = debugfs_create_file("utility_progs",
-			0600, NULL, NULL, &utility_progs_fops);
-	printk(KERN_INFO STING_MSG "creating utility_progs file\n");
-
-	if(!utility_progs) {
-		printk(KERN_INFO STING_MSG "unable to create utility_progs\n");
-	}
-	return 0;
-}
-fs_initcall(utility_progs_init);
 
 /* list of ongoing attacks (status and rollback information).
  * Since the number of attacks is small, a list suffices.
@@ -765,10 +645,6 @@ void sting_syscall_begin(void)
 		r->val.dac.ctr_first_adv = r->val.ctr;
 		r->val.dac.adversary_access = 1;
 	}
-
-	/* there is no use marking utility program entrypoints as immune;
-	 * they have to be tested anyway if the parent shell's entrypoint
-	 * is not immune, as what matters is the context within the script */
 
 	STING_LOG("[%s,%lx,%s,%lu,%s/%s,%d]\n", current->comm, r->key.offset,
 			r->key.int_filename ? r->key.int_filename : "(null)", r->key.int_lineno,
