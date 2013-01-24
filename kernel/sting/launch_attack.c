@@ -38,13 +38,13 @@
 #include <linux/security.h>
 #include <linux/fsnotify_backend.h>
 #include <linux/audit.h>
+#include <linux/interpreter_unwind.h>
 
 #include <asm/syscall.h>
 
 #include "launch_attack.h"
 #include "syscalls.h"
 #include "permission.h"
-#include "interpreter_unwind.h"
 
 /* Internal flags */
 #define CREATE_FILE_NONEXISTENT 0x1
@@ -287,6 +287,25 @@ int already_exists(char __user *filename, int follow, struct stat64 *buf)
 		return 0; /* Any other failure */
 }
 
+
+int try_deleting(char __user *filename)
+{
+	int ret = 0;
+	struct stat64 buf;
+	mm_segment_t old_fs = get_fs();
+
+	STING_LOG("deleting: %s\n", filename);
+	ret = get_stat(filename, 0, &buf);
+
+	if (!S_ISDIR(buf.st_mode)) {
+		STING_SYSCALL(ret = sys_unlink(filename));
+	} else {
+		STING_SYSCALL(ret = sys_rmdir(filename));
+	}
+
+	return ret;
+}
+
 #define REASON_SQUAT 0x1
 #define REASON_TARGET 0x2
 #define REASON_TOCTTOU_RUNTIME 0x4
@@ -426,16 +445,21 @@ int file_create(char __user *fname, struct path* parent,
 	/* With process permission may execute further paths */
 
 	if ((reason == REASON_TARGET) || (reason == REASON_NORMAL_RUNTIME)) {
+		/* if target, delete and re-create anyway, because chmod etc. will not
+		 * act if permissions requested are already set. */
+		if (reason == REASON_TARGET)
+			ret = try_deleting(fname);
+
 		/* Create the file with process permission */
 		/* This is only done in /attacker/uid/ */
 		sting_set_res_type(current, NORMAL_RES);
 		if (type == T_REG) {
-			STING_SYSCALL(ret = sys_open(fname, O_CREAT, 0755));
+			STING_SYSCALL(ret = sys_open(fname, O_CREAT, 0700));
 			if (ret > 0) {
 				STING_SYSCALL(sys_close(ret));
 			}
 		} else if (type == T_DIR) {
-			STING_SYSCALL(ret = sys_mkdir(fname, 0777));
+			STING_SYSCALL(ret = sys_mkdir(fname, 0700));
 		}
 		if (ret == -EEXIST)
 			ret = 0;
@@ -469,7 +493,7 @@ int file_create(char __user *fname, struct path* parent,
 				   is already there */
 
 				/* Try deleting first */
-				STING_SYSCALL(ret = sys_unlink(fname));
+				ret = try_deleting(fname);
 				if (ret < 0) {
 					if (ret == -ENOENT)
 						printk(KERN_INFO STING_MSG
