@@ -11,8 +11,12 @@
 #ifndef UNWIND_H
 #define UNWIND_H
 
+#ifdef __KERNEL__
 #include <linux/types.h>
 #include <linux/stacktrace.h>
+#else
+#include <sys/types.h>
+#endif
 
 #define USER_STACK_MAX 16
 #define INT_FNAME_MAX 32
@@ -44,5 +48,8 @@ struct user_stack_info {
 	struct interpreter_stack_trace int_trace;
 };
 
+#ifdef __KERNEL__
 extern void user_unwind(struct task_struct *);
+#endif
+
 #endif /* UNWIND_H */

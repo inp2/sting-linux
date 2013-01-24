@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  */
 
+/* TODO: this file should only include the bare necessary exported functions
+ * and declarations */
+
 #ifndef _STING_H_
 #define _STING_H_
 #ifdef CONFIG_STING
@@ -16,6 +19,7 @@
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/path.h>
+#include <linux/interpreter_unwind.h>
 #include <linux/user_unwind.h>
 #include <linux/lsm_audit.h>
 #include <linux/relay.h>
@@ -69,6 +73,40 @@ void sting_process_exit(void);
 extern void sting_log_vulnerable_access(struct common_audit_data *a);
 void sting_lwd(void);
 
+/* TODO: Below five functions should be in user_unwind.h */
+
+static inline ino_t ept_inode_get(struct user_stack_info *us)
+{
+	return us->trace.vma_inoden[us->trace.ept_ind];
+}
+
+static inline unsigned long ept_offset_get(struct user_stack_info *us)
+{
+	return us->trace.entries[us->trace.ept_ind] - us->trace.vma_start[us->trace.ept_ind];
+}
+
+static inline unsigned long us_offset_get(struct user_stack_info *us, int i)
+{
+	return us->trace.entries[i] - us->trace.vma_start[i];
+}
+
+static inline int valid_user_stack(struct user_stack_info *us)
+{
+	return (us->trace.entries[0] > 0);
+}
+
+static inline int ept_match(struct user_stack_info *us1, struct user_stack_info *us2)
+{
+	if ((ept_inode_get(us1) != ept_inode_get(us2)) ||
+			(ept_offset_get(us1) != ept_offset_get(us2)) ||
+			(strcmp(int_ept_filename_get(us1), int_ept_filename_get(us2))) ||
+			(int_ept_lineno_get(us1) != int_ept_lineno_get(us2)))
+		return 1; /* no match */
+
+	return 0; /* match */
+}
+
+
 /* logging */
 
 #define STING_LOG_FILE "sting_log"
@@ -85,19 +123,6 @@ extern struct rchan *sting_log_rchan;
 	} \
 }
 
-#define STING_LOG_STING_DETAILS(m, str) { \
-	STING_LOG(str ": entrypoint: [%s:%lx:%s,%lu], resource: [%s], " \
-				"system call: [%d], attack_type: [%s], " \
-				"adversary uid: [%d], victim uid: [%d]\n", \
-		m->comm, m->offset, (m->int_filename ? \
-			m->int_filename : "(null)"), \
-		m->int_lineno, m->pathname, \
-		syscall_get_nr(current, task_pt_regs(current)), \
-		sting_attack_to_str(m->attack_type), \
-		uid_array[m->adv_uid_ind][0], \
-		m->victim_uid); \
-}
-
 #define STING_LOG_ALLOCED(s) { \
 	if (s) { \
 		current->sting_request++; \
@@ -107,19 +132,46 @@ extern struct rchan *sting_log_rchan;
 	} \
 }
 
+
+static inline void sting_log_full_stack(struct user_stack_info *us)
+{
+	int i = 0;
+	STING_LOG(" full_stack: [");
+	for (i = 0; i < us->trace.nr_entries - 1; i++)
+		STING_LOG("(vma_inode: [%lu], offset: [%lx]), ",
+				us->trace.vma_inoden[i], us_offset_get(us, i));
+	STING_LOG("]\n");
+}
+
+#define STING_LOG_STING_DETAILS(m, str) { \
+	STING_LOG("message: " str ": sting_entrypoint: [%s:%lx:%s,%lu], " \
+		"resource: [%s], " \
+		"system call: [%d], attack_type: [%s], " \
+		"adversary uid: [%d], victim uid: [%d]\n", \
+		m->comm, ept_offset_get(&m->user_stack), \
+		int_ept_filename_get(&m->user_stack), \
+		int_ept_lineno_get(&m->user_stack), \
+		m->pathname, \
+		syscall_get_nr(current, task_pt_regs(current)), \
+		sting_attack_to_str(m->attack_type), \
+		uid_array[m->adv_uid_ind][0], \
+		m->victim_uid); \
+}
+
+
 /* current attacks (stings) */
 
 #define INT_FNAME_MAX 32
 
+/* temporary in-memory structure describing stings taking place.
+ * created when launching an attack, destroyed when we know
+ * the result of an attack. */
 struct sting {
 	/* process info */
 	struct list_head list;
 	pid_t pid;
 	char comm[TASK_COMM_LEN];
-	ino_t ino;
-	unsigned long offset;
-	char int_filename[INT_FNAME_MAX];
-	unsigned long int_lineno;
+	struct user_stack_info user_stack;
 
 	/* rollback info */
 	char pathname[512];
@@ -130,6 +182,8 @@ struct sting {
 
 	/* sting info */
 	int attack_type;
+	int syscall_nr;
+	int syscall_nr_subtype; /* for socketcall */
 	uid_t victim_uid;
 	int adv_uid_ind; /* TODO: mac */
 };
@@ -137,15 +191,6 @@ struct sting {
 #define MATCH_PID	0x1
 #define MATCH_EPT	0x2
 #define MATCH_INO	0x8
-
-// extern void sting_list_add(struct sting *st);
-// extern void sting_list_del(struct sting *st);
-// extern struct sting *sting_list_get(struct sting *st, int flags);
-
-/* goes into interpreter_unwind.h, here because copy_process() needs it */
-int user_interpreter_unwind(struct user_stack_info *us);
-void copy_interpreter_info(struct task_struct *c, struct task_struct *p);
-struct int_bt_info *on_script_behalf(struct user_stack_info *us);
 
 /* goes into user_unwind.h */
 #define VMA_INO(vma) (vma->vm_file->f_dentry->d_inode->i_ino)
@@ -155,24 +200,6 @@ struct int_bt_info *on_script_behalf(struct user_stack_info *us);
 			((addr) + (us->trace.vma_start[us->trace.ept_ind]))
 #define EPT_INO(t) \
 			(t->user_stack.trace.vma_inoden[t->user_stack.trace.ept_ind])
-
-/* TODO: Below three functions should be in user_unwind.h */
-
-static inline ino_t ept_inode_get(struct user_stack_info *us)
-{
-	return us->trace.vma_inoden[us->trace.ept_ind];
-}
-
-static inline unsigned long ept_offset_get(struct user_stack_info *us)
-{
-	return us->trace.entries[us->trace.ept_ind] - us->trace.vma_start[us->trace.ept_ind];
-}
-
-static inline int valid_user_stack(struct user_stack_info *us)
-{
-	return (us->trace.entries[0] > 0);
-}
-
 
 /* from permission.h, used by unionfs */
 /* simple dac adversary */

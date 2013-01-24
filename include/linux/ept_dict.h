@@ -9,14 +9,20 @@
  */
 
 #define INT_FNAME_MAX 32
+#ifdef __KERNEL__
+#include <linux/user_unwind.h>
+#else
+#include "user_unwind.h"
+#endif
 
+/* the entrypoint dictionary (struct ept_dict) maintains a permanent
+ * history of past attacks and their results. userspace tools save
+ * and restore it on every boot. */
 struct ept_dict_key {
-	/* normal user ept */
-	ino_t ino;
-	unsigned long offset;
-	/* interpreter ept (assume first in stack) */
-	char int_filename[INT_FNAME_MAX];
-	unsigned long int_lineno;
+	/* the actual key used in the hash table is the entrypoint. we
+	 * store the full stack so we can compare library entrypoints
+	 * also, as needed */
+	struct user_stack_info user_stack;
 };
 
 struct adv_model {
@@ -32,6 +38,10 @@ struct adv_model {
 	/* is it accessible to adversary under this model? */
 	int adversary_access;
 };
+
+/* attack history definitions */
+#define ATTACK_CHECKED_SHIFT 8
+#define ATTACK_VULNERABLE_SHIFT 0
 
 #define MAX_PROC_NAME 32
 struct ept_dict_val {

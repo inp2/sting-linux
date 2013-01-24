@@ -121,10 +121,17 @@ struct hlist_head ept_dict_htable[DICT_HTABLE_SIZE];
 
 static unsigned long ept_dict_hash(struct dict_key *key)
 {
-	struct ept_dict_key *k = (struct ept_dict_key *) key;
+	struct ept_dict_key *k;
+	ino_t ino;
+	unsigned long offset;
+
+	k = (struct ept_dict_key *) key;
+	ino = ept_inode_get(&k->user_stack);
+	offset = ept_offset_get(&k->user_stack);
+
 	/* Simple hash */
 	return (unsigned long) hash_long(
-			(unsigned long) (k->ino + k->offset), DICT_HTABLE_SIZE);
+			(unsigned long) (ino + offset), DICT_HTABLE_SIZE);
 }
 
 static struct dict_key *ept_dict_key_get(struct dict_entry *e)
@@ -141,10 +148,7 @@ static int ept_dict_key_cmp(struct dict_key *k1, struct dict_key *k2)
 {
 	struct ept_dict_key *kc1 = (struct ept_dict_key *) k1;
 	struct ept_dict_key *kc2 = (struct ept_dict_key *) k2;
-	return !((kc1->ino == kc2->ino) &&
-			(kc1->offset == kc2->offset) &&
-			(!strcmp(kc1->int_filename, kc2->int_filename)) &&
-			(kc1->int_lineno == kc2->int_lineno));
+	return ept_match(&kc1->user_stack, &kc2->user_stack);
 }
 
 static int ept_dict_val_cmp(struct dict_val *v1, struct dict_val *v2)
