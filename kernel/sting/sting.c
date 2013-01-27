@@ -78,6 +78,8 @@ static int __init sting_log_init(void)
 		STING_ERR(1, "relay_open(%s) failed\n", STING_LOG_FILE);
 		return 1;
 	}
+
+	STING_LOG("message: reboot marker\n");
 	return 0;
 }
 fs_initcall(sting_log_init);
