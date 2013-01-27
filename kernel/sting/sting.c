@@ -82,6 +82,147 @@ static int __init sting_log_init(void)
 }
 fs_initcall(sting_log_init);
 
+/* file /sys/kernel/debug/sting_ignore_library_ept for ignoring repeat attacks
+ * on already tested library entrypoints */
+
+struct user_stack_frame {
+	struct list_head list;
+	ino_t f_ino;
+	unsigned long offset;
+};
+
+static struct user_stack_frame frame_list;
+static struct rw_semaphore frame_list_rwlock;
+
+static unsigned int frame_list_load(void **data, size_t length)
+{
+    struct user_stack_frame *tmp, *n;
+    char *inode_s, *offset_s, *e_s;
+    int ret = 0;
+	ino_t inode;
+	unsigned long offset;
+
+	down_write(&frame_list_rwlock);
+
+	/* Empty the list */
+	list_for_each_entry_safe(tmp, n, &frame_list.list, list) {
+		list_del(&tmp->list);
+		kfree(tmp);
+	}
+
+	printk(KERN_INFO STING_MSG "Initializing frame ignore list\n");
+
+	INIT_LIST_HEAD(&frame_list.list);
+
+	/* Parse and load input data:
+	 * inode1 offset1
+	 * inode2 offset2
+	 * ...
+	 */
+
+	/* Null Terminate */
+	*(*(char **)data + length - 1) = '\0';
+
+	/* Parse the lines and insert into list */
+	while (1) {
+		inode_s = strsep((char **) data, " ");
+		if (!inode_s)
+			break;
+		offset_s = strsep((char **) data, "\n");
+		if (!offset_s)
+			break;
+
+		inode = simple_strtoul(inode_s, &e_s, 0);
+		if (inode == 0 && inode_s == e_s) {
+			ret = -EINVAL;
+			break;
+		}
+
+		offset = simple_strtoul(offset_s, &e_s, 16);
+		if (offset == 0 && offset_s == e_s) {
+			ret = -EINVAL;
+			break;
+		}
+
+		tmp = kmalloc(sizeof(struct user_stack_frame), GFP_ATOMIC);
+		if (!tmp) {
+			ret = -ENOMEM;
+			break;
+		}
+
+		tmp->f_ino = inode;
+		tmp->offset = offset;
+
+		list_add_tail(&tmp->list, &frame_list.list);
+		printk(KERN_INFO STING_MSG "added inode: [%lu] offset: [%lu]\n",
+			tmp->f_ino, tmp->offset);
+	}
+
+	up_write(&frame_list_rwlock);
+
+	return (ret < 0) ? ret : length;
+}
+
+static ssize_t
+sting_frame_ignore_write(struct file *filp, const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	void *data = NULL;
+	ssize_t length;
+
+	if (count >= PAGE_SIZE)
+		return -ENOMEM;
+
+	if (*ppos != 0) {
+		/* No partial writes. */
+		return -EINVAL;
+	}
+
+	if ((count > 64 * 1024 * 1024)
+		|| (data = vmalloc(count)) == NULL) {
+		length = -ENOMEM;
+		goto out;
+	}
+
+	length = -EFAULT;
+	if (copy_from_user(data, buf, count) != 0)
+		goto out;
+
+	length = frame_list_load(&data, count);
+
+	vfree(data);
+out:
+	return length;
+}
+
+static const struct file_operations sting_frame_ignore_fops = {
+	   .write  = sting_frame_ignore_write,
+};
+
+/* return true if @us contains frame in frame_list */
+int frame_ignore(struct user_stack_info *us)
+{
+	struct user_stack_frame *uf;
+	int found = false, i;
+
+	down_read(&frame_list_rwlock);
+
+	for (i = 0; i < us->trace.nr_entries - 1; i++) {
+		list_for_each_entry(uf, &frame_list.list, list) {
+			if ((us->trace.vma_inoden[i] == uf->f_ino) &&
+					(us_offset_get(us, i) == uf->offset)) {
+				found = true;
+				goto out;
+			}
+		}
+	}
+
+out:
+	up_read(&frame_list_rwlock);
+
+	return found;
+}
+
 /* file /sys/kernel/debug/sting_monitor_pid for selective pid tracing */
 
 pid_t sting_monitor_pid = 0;
@@ -286,7 +427,7 @@ static void sting_ctor(void *data)
 
 static int __init sting_init(void)
 {
-	struct dentry *sting_monitor_pid;
+	struct dentry *sting_monitor_pid, *sting_frame_ignore;
 
 	sting_monitor_pid = debugfs_create_file("sting_monitor_pid",
 			0600, NULL, NULL, &sting_monitor_pid_fops);
@@ -296,9 +437,21 @@ static int __init sting_init(void)
 		printk(KERN_INFO STING_MSG "unable to create sting_monitor_pid\n");
 	}
 
+	sting_frame_ignore = debugfs_create_file("frame_ignore_list",
+			0600, NULL, NULL, &sting_frame_ignore_fops);
+	printk(KERN_INFO STING_MSG "creating sting_frame_ignore file\n");
+
+	if(!sting_frame_ignore) {
+		printk(KERN_INFO STING_MSG "unable to create sting_frame_ignore\n");
+	}
+
 	/* initialize linked list of ongoing stings */
 	INIT_LIST_HEAD(&sting_list.list);
 	init_rwsem(&stings_rwlock);
+
+	/* initialize linked list of frames to skip testing */
+	INIT_LIST_HEAD(&frame_list.list);
+	init_rwsem(&frame_list_rwlock);
 
 	/* initialize cache for ongoing stings */
 	sting_cachep = kmem_cache_create("sting_cachep",
@@ -628,6 +781,10 @@ void sting_syscall_begin(void)
 	user_unwind(t);
 	if (!valid_user_stack(&t->user_stack))
 		goto parent_put;  /* change to put if moving below! */
+
+	if (frame_ignore(&t->user_stack))
+		goto parent_put;
+
 	user_interpreter_unwind(&t->user_stack);
 
 	/* TODO: ignore open[at]() on directories, because they involve
