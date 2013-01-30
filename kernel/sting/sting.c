@@ -474,14 +474,37 @@ static inline int ancestor_pid(struct task_struct *t, pid_t sting_monitor_pid)
 	return false;
 }
 
+static inline int sting_should_monitor_pid(struct task_struct *t)
+{
+	if (sting_monitor_pid == 1) {
+		return 1;
+	} else if (sting_monitor_pid == -1 || sting_monitor_pid == 0) {
+		return 0;
+	} else if (sting_monitor_pid > 1) {
+		if (!ancestor_pid(t, (pid_t) sting_monitor_pid))
+			return 0;
+		else
+			return 1;
+	} else if (sting_monitor_pid < -1) {
+
+		if (ancestor_pid(t, (pid_t) -sting_monitor_pid))
+			return 0;
+		else
+			return 1;
+	}
+
+	printk(KERN_INFO STING_MSG "logic error!\n");
+	return 0;
+}
+
 /* sting hooks and actions */
 static int check_valid_user_context(struct task_struct *t)
 {
 	if (!t->mm)
 		goto fail;
-	if (sting_monitor_pid != -1 && !ancestor_pid(t, (pid_t) sting_monitor_pid))
+	if (!sting_should_monitor_pid(t))
 		goto fail;
-	/* not dealing with init because it exits last and we cannot save
+	/* not dealing with init itself because it exits last and we cannot save
 	   marked exit immunity. */
 	if (t->pid == 1)
 		goto fail;
