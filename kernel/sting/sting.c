@@ -211,10 +211,12 @@ int frame_ignore(struct user_stack_info *us)
 
 	for (i = 0; i < us->trace.nr_entries - 1; i++) {
 		list_for_each_entry(uf, &frame_list.list, list) {
-			if ((us->trace.vma_inoden[i] == uf->f_ino) &&
-					(us_offset_get(us, i) == uf->offset)) {
-				found = true;
-				goto out;
+			if ((us->trace.vma_inoden[i] == uf->f_ino)) {
+			   	if (uf->offset == 0 ||
+						us_offset_get(us, i) == uf->offset) {
+					found = true;
+					goto out;
+				}
 			}
 		}
 	}
