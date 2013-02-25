@@ -309,12 +309,15 @@ void sting_list_add(struct sting *st)
 
 	memcpy(news, st, sizeof(struct sting));
 	STING_LOG("message: added to sting_list, entrypoint: [%s:%lx:%s:%lu], "
-				"resource: [%s], adversary uid: [%d], victim uid: [%d]\n",
+				"resource: [%s], adversary sid: [%d], victim sid: [%d], "
+				"adversary model: [%s]\n",
 			current->comm, ept_offset_get(&news->user_stack),
 			int_ept_filename_get(&news->user_stack),
 			int_ept_lineno_get(&news->user_stack),
 			news->path.dentry->d_name.name,
-			uid_array[news->adv_uid_ind][0], current->cred->fsuid
+			news->adv_model->print_adv(news->adv_id),
+			news->adv_model->print_victim(news->victim),
+			news->adv_model->name
 			);
 	down_write(&stings_rwlock);
 	path_get(&news->path);
@@ -328,12 +331,15 @@ void sting_list_add(struct sting *st)
 void sting_list_del(struct sting *st)
 {
 	STING_LOG("message: deleted from sting_list, entrypoint: [%s:%lx:%s:%lu], "
-				"resource: [%s], adversary uid: [%d], victim uid: [%d]\n",
+				"resource: [%s], adversary sid: [%d], victim sid: [%d], "
+				"adversary model: [%s]\n",
 			current->comm, ept_offset_get(&st->user_stack),
 			int_ept_filename_get(&st->user_stack),
 			int_ept_lineno_get(&st->user_stack),
 			st->path.dentry->d_name.name,
-			uid_array[st->adv_uid_ind][0], current->cred->fsuid
+			st->adv_model->print_adv(st->adv_id),
+			st->adv_model->print_victim(st->victim),
+			st->adv_model->name
 			);
 	path_put(&st->path);
 	if (st->target_path.dentry);
@@ -412,7 +418,7 @@ static void sting_ctor(void *data)
 
 	memset(st, 0, sizeof(struct sting));
 	st->attack_type = -1;
-	st->adv_uid_ind = -1;
+	st->adv_id = -1;
 #if 0
 	st->pid = 0;
 	st->comm[0] = '\0';
@@ -601,14 +607,11 @@ char *get_dpath(struct path *path, char **pathname)
 	return p;
 }
 
-extern struct cred *superuser_creds(void);
-
-
 /* TODO: move rollback into its own file */
 int sting_rollback(struct sting *st)
 {
 	int err = 0;
-	struct cred *old_cred;
+	const struct cred *old_cred;
 	struct path path;
 	struct sting *m;
 
@@ -671,7 +674,7 @@ out:
 void sting_syscall_begin(void)
 {
 	char *fname = NULL;
-	int adv_uid_ind = UID_NO_MATCH;
+	int adv_id = INV_ADV_ID; // UID_NO_MATCH;
 	struct ept_dict_entry *e = NULL, *r;
 	int ntest;
 	struct task_struct *t = current;
@@ -750,15 +753,15 @@ void sting_syscall_begin(void)
 			shadow_res_get_pc_paths(&parent, &child, &nd, sh_err);
 
 			sting_set_res_type(current, NORMAL_RES);
-			adv_uid_ind = sting_get_adversary(parent.dentry,
+			adv_id = sting_adv_model->get_adversary(parent.dentry,
 					child.dentry, PERM_BIND);
 			sting_set_res_type(current, ADV_NORMAL_RES);
 
 			shadow_res_put_pc_paths(&parent, &child, sh_err);
 
-			if (sting_valid_adversary(adv_uid_ind)) {
+			if (sting_adv_model->valid_adversary(adv_id)) {
 		//		STING_LOG("adversary: %d for uid: %d and filename: %s\n",
-		//			uid_array[adv_uid_ind][0], current->cred->fsuid, fname);
+		//			uid_array[adv_id][0], current->cred->fsuid, fname);
 				break;
 			}
 		}
@@ -801,7 +804,7 @@ void sting_syscall_begin(void)
 	if (!is_attackable_syscall(t))
 		goto parent_put;
 
-	if (!sting_valid_adversary(adv_uid_ind))
+	if (!sting_adv_model->valid_adversary(adv_id))
 		goto parent_put;
 
 	/* get entrypoint */
@@ -843,7 +846,7 @@ void sting_syscall_begin(void)
 		r = ept_dict_entry_set(&e->key, &e->val);
 	}
 	if ((!r->val.dac.adversary_access) &&
-			sting_valid_adversary(adv_uid_ind)) {
+			sting_adv_model->valid_adversary(adv_id)) {
 		r->val.dac.ctr_first_adv = r->val.ctr;
 		r->val.dac.adversary_access = 1;
 	}
@@ -883,7 +886,7 @@ void sting_syscall_begin(void)
 			if (r && sting_attack_checked(r->val.attack_history, m->attack_type)) {
 				STING_DBG("new adversarial path\n");
 			}
-			if (!sting_adversary(uid_array[m->adv_uid_ind][0], t->cred->fsuid)) {
+			if (!sting_adv_model->is_adversary(m->adv_id, current->cred)) {
 				STING_DBG("another non-adversarial attack ongoing: [%s]\n", fname);
 				goto st_free;
 			}
@@ -926,7 +929,7 @@ void sting_syscall_begin(void)
 	}
 
 	err = sting_launch_attack(shadow_res_get_last_name(&nd, &child),
-			&parent, adv_uid_ind, ntest, st);
+			&parent, adv_id, ntest, st);
 
 	if (err < 0)
 		goto st_free;
@@ -935,12 +938,14 @@ void sting_syscall_begin(void)
 	st->attack_type = ntest;
 	st->syscall_nr = sn;
 	st->syscall_nr_subtype = sn_subtype;
-	st->adv_uid_ind = adv_uid_ind;
-	st->victim_uid = t->cred->fsuid;
+
+	st->adv_model = sting_adv_model;
+	st->adv_id = adv_id;
+	st->victim = sting_adv_model->get_sid(t->cred);
+
 	strcpy(st->pathname, get_dpath(&parent, &pfname));
 	strcat(st->pathname, "/");
 	strcat(st->pathname, get_last2(fname));
-
 	sting_list_add(st);
 
 	/* sting_list_add got references, put ours */
@@ -970,7 +975,7 @@ end:
 		putname(fname);
 	/* determine unionfs branch visibility for real resolution */
 	/* we should ideally fold this into the lookup itself */
-	if (sting_valid_adversary(adv_uid_ind)) {
+	if (sting_adv_model->valid_adversary(adv_id)) {
 		/* possible adversarial interference - show adversarial
 		 * resource if one exists along path. */
 		sting_set_res_type(current, ADV_NORMAL_RES);
@@ -1029,7 +1034,7 @@ void sting_process_exit(void)
 		if (!m)
 			break;
 
-		if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
+		if (!m->adv_model->is_adversary(m->adv_id, current->cred)) {
 			STING_DBG("another non-adversarial attack ongoing: [%s]\n", m->pathname);
 			continue;
 		}
@@ -1184,7 +1189,7 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			}
 
 			i++;
-			if (!sting_adversary(uid_array[m->adv_uid_ind][0], current->cred->fsuid)) {
+			if (!m->adv_model->is_adversary(m->adv_id, current->cred)) {
 				STING_DBG("another non-adversarial attack ongoing: [%s]\n", d->d_name.name);
 				goto done;
 			}

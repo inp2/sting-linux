@@ -3,6 +3,7 @@ obj-$(CONFIG_STING)	+=	ept_dict.o
 obj-$(CONFIG_STING)	+=	sting.o
 obj-$(CONFIG_STING)	+=	syscall_filename.o
 obj-$(CONFIG_STING)	+=	permission.o
+obj-$(CONFIG_STING) += 	dac_adv_model.o
 obj-$(CONFIG_STING)	+=	launch_attack.o
 obj-$(CONFIG_STING)	+=	utility.o
 obj-$(CONFIG_STING)	+=  shadow_resolution.o

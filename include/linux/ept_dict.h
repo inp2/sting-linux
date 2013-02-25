@@ -25,7 +25,7 @@ struct ept_dict_key {
 	struct user_stack_info user_stack;
 };
 
-struct adv_model {
+struct adv_model_info {
 	 /* below information is only useful if we insert
 	  * entrypoints into dictionary independent of
 	  * adversary access.  otherwise, all inserted
@@ -52,10 +52,12 @@ struct ept_dict_val {
 	/* name of process */
 	char comm[MAX_PROC_NAME];
 
-	struct adv_model dac;
-	struct adv_model mac;
+	/* TODO */
+	struct adv_model_info dac;
+	struct adv_model_info mac;
 
-	/* format: 16 empty bits || checked (8 bits) || immune (8 bits) */
+	/* TODO: format: checked_mac (8 bits) || immune_mac (8 bits) || checked_dac
+	 * (8 bits) || immune_dac (8 bits) */
 	/* immunity means only to attack type launched at this entrypoint,
 	 * not immunity to attack types launched from other entrypoints */
 	int attack_history;

@@ -428,7 +428,7 @@ unlock:
  */
 
 int file_create(char __user *fname, struct path* parent,
-		int reason, int type, int sn, int att_uid_ind)
+		int reason, int type, int sn, int adv_id)
 {
 	const struct cred *old_cred;
 	int ret = 0;
@@ -479,7 +479,7 @@ int file_create(char __user *fname, struct path* parent,
 	} else if ((reason == REASON_SQUAT) || (reason ==
 				REASON_TOCTTOU_RUNTIME)) {
 		/* Change creds to attacker's */
-		old_cred = set_creds(uid_array[att_uid_ind]);
+		old_cred = sting_adv_model->set_creds(adv_id);
 		sting_set_res_type(current, ADV_RES);
 
 		mutex_lock(&parent->dentry->d_inode->i_mutex);
@@ -511,7 +511,7 @@ int file_create(char __user *fname, struct path* parent,
 							"delete?!\n");
 					else if (ret == -EACCES)
 						STING_ERR(1, "attacker: "
-							"att_uid_ind not "
+							"adv_id not "
 							"working!\n");
 					goto restore;
 				} else {
@@ -519,7 +519,7 @@ int file_create(char __user *fname, struct path* parent,
 				STING_LOG("message: delete success for squat, filename: %s, proc "
 							"euid: %d attacker uid: %d, process: %s system call:  %d\n",
 							fname, current->real_cred->fsuid,
-							uid_array[att_uid_ind][0], current->comm, sn);
+							uid_array[adv_id][0], current->comm, sn);
 				*/
 					STING_LOG("message: delete success for squat, "
 							"current_entrypoint: [%s:%lx:%s,%lu], resource: [%s], "
@@ -529,7 +529,7 @@ int file_create(char __user *fname, struct path* parent,
 							int_ept_filename_get(&current->user_stack),
 							int_ept_lineno_get(&current->user_stack),
 							fname, sn,
-							uid_array[att_uid_ind][0],
+							uid_array[adv_id][0],
 							current->real_cred->fsuid);
 				}
 			} else {
@@ -543,13 +543,13 @@ int file_create(char __user *fname, struct path* parent,
 						int_ept_filename_get(&current->user_stack),
 						int_ept_lineno_get(&current->user_stack),
 						fname, sn,
-						uid_array[att_uid_ind][0],
+						uid_array[adv_id][0],
 						current->real_cred->fsuid);
 				/*
 				STING_LOG("Delete SUCCESS for squat: %s, proc "
 							"euid: %d attacker uid: %d, process: %s system call:  %d\n",
 							fname, current->real_cred->fsuid,
-							uid_array[att_uid_ind][0], current->comm, sn);
+							uid_array[adv_id][0], current->comm, sn);
 				*/
 			}
 		}
@@ -603,7 +603,7 @@ mark:
 					int_ept_filename_get(&current->user_stack),
 					int_ept_lineno_get(&current->user_stack),
 					fname, sn,
-					uid_array[att_uid_ind][0],
+					uid_array[adv_id][0],
 					current->cred->fsuid);
 
 		} else if ((reason == REASON_TARGET) || (reason == REASON_NORMAL_RUNTIME)) {
@@ -667,7 +667,7 @@ fail:
  */
 
 int hardlink_create(char *source, char *target, struct path *parent,
-		int type, int sn, int att_uid_ind)
+		int type, int sn, int adv_id)
 {
 	const struct cred *old_cred;
 	int ret = 0; /* index of attacker in uid_array */
@@ -692,7 +692,7 @@ int hardlink_create(char *source, char *target, struct path *parent,
 	exists = sting_obj_exists(child, STING_NON_ADV_BID);
 
 	/* Change creds to attacker's */
-	old_cred = set_creds(uid_array[att_uid_ind]);
+	old_cred = sting_adv_model->set_creds(adv_id);
 
 	/* Try deleting first if exists */
 	if (exists) {
@@ -704,12 +704,12 @@ int hardlink_create(char *source, char *target, struct path *parent,
 				} else if (ret == -EACCES || ret == -EPERM) {
 					STING_LOG("Cannot access! permission module error!: "
 					"%s, proc euid: %d attacker uid: %d, process: %s system call: %d\n",
-					source, current->real_cred->fsuid, uid_array[att_uid_ind][0],
+					source, current->real_cred->fsuid, uid_array[adv_id][0],
 					current->comm, sn);
 				} else {
 					STING_LOG("Delete SUCCESS for hardlink: %s, proc euid: "
 							"%d attacker uid: %d, process: %s system call: %d\n",
-							source, current->real_cred->fsuid, uid_array[att_uid_ind][0]
+							source, current->real_cred->fsuid, uid_array[adv_id][0]
 							, current->comm, sn);
 				}
 				goto restore;
@@ -719,7 +719,7 @@ int hardlink_create(char *source, char *target, struct path *parent,
 			 * already evaluated delete permission on the lower branch */
 			STING_LOG("Delete SUCCESS for hardlink: %s, proc euid: "
 					"%d attacker uid: %d, process: %s system call: %d\n",
-					source, current->real_cred->fsuid, uid_array[att_uid_ind][0]
+					source, current->real_cred->fsuid, uid_array[adv_id][0]
 					, current->comm, sn);
 		}
 	}
@@ -728,8 +728,8 @@ int hardlink_create(char *source, char *target, struct path *parent,
 	/* TODO: Once everyone uses permission module, below revert_creds and set_creds
 		will disappear */
 	revert_creds(old_cred);
-	ret = file_create(target, parent, REASON_TARGET, type, sn, att_uid_ind);
-	old_cred = set_creds(uid_array[att_uid_ind]);
+	ret = file_create(target, parent, REASON_TARGET, type, sn, adv_id);
+	old_cred = sting_adv_model->set_creds(adv_id);
 	/* Create the hardlink */
 	sting_set_res_type(current, ADV_RES);
 	STING_SYSCALL(ret = sys_link(target, source));
@@ -740,7 +740,7 @@ int hardlink_create(char *source, char *target, struct path *parent,
 			STING_LOG("Cannot access! permission module error!: %s, proc "
 					"euid: %d attacker uid: %d, process: %s system call: %d\n",
 					source, current->real_cred->fsuid,
-					uid_array[att_uid_ind][0], current->comm, sn);
+					uid_array[adv_id][0], current->comm, sn);
 		}
 		goto restore;
 	}
@@ -752,7 +752,7 @@ restore:
 		/* Success! */
 		STING_LOG("Hardlink SUCCESS!: %s, proc euid: %d attacker uid: %d, "
 				"process: %s, link to %s, system call: %d\n", source,
-				current->cred->fsuid, uid_array[att_uid_ind][0],
+				current->cred->fsuid, uid_array[adv_id][0],
 				current->comm, target, sn);
 		/* Set xattr on attacker hardlink */
 		sting_set_res_type(current, ADV_RES);
@@ -791,7 +791,7 @@ out:
  */
 
 int symlink_create(char *source, char *target, struct path *parent,
-		int flag, int sn, int att_uid_ind)
+		int flag, int sn, int adv_id)
 {
 	const struct cred *old_cred;
 	int ret = 0;
@@ -817,7 +817,7 @@ int symlink_create(char *source, char *target, struct path *parent,
 	exists = sting_obj_exists(child, STING_NON_ADV_BID);
 
 	/* Change creds to attacker's */
-	old_cred = set_creds(uid_array[att_uid_ind]);
+	old_cred = sting_adv_model->set_creds(adv_id);
 
 	if (exists) {
 		if (!is_unionfs(child)) {
@@ -844,13 +844,13 @@ int symlink_create(char *source, char *target, struct path *parent,
 						int_ept_filename_get(&current->user_stack),
 						int_ept_lineno_get(&current->user_stack),
 						source, sn,
-						uid_array[att_uid_ind][0],
+						uid_array[adv_id][0],
 						current->real_cred->fsuid);
 				/*
 				STING_LOG("Delete SUCCESS for symlink: %s, proc euid: %d "
 						"attacker uid: %d, process: %s system call: %d\n",
 						source, current->real_cred->fsuid,
-						uid_array[att_uid_ind][0], current->comm, sn);
+						uid_array[adv_id][0], current->comm, sn);
 						*/
 			}
 		} else {
@@ -864,13 +864,13 @@ int symlink_create(char *source, char *target, struct path *parent,
 						int_ept_filename_get(&current->user_stack),
 						int_ept_lineno_get(&current->user_stack),
 						source, sn,
-						uid_array[att_uid_ind][0],
+						uid_array[adv_id][0],
 						current->real_cred->fsuid);
 				/*
 			STING_LOG("Delete SUCCESS for symlink: %s, proc euid: %d "
 					"attacker uid: %d, process: %s system call: %d\n",
 					source, current->real_cred->fsuid,
-					uid_array[att_uid_ind][0], current->comm, sn);
+					uid_array[adv_id][0], current->comm, sn);
 				*/
 		}
 	}
@@ -900,7 +900,7 @@ restore:
 				int_ept_filename_get(&current->user_stack),
 				int_ept_lineno_get(&current->user_stack),
 				source, target, sn,
-				uid_array[att_uid_ind][0],
+				uid_array[adv_id][0],
 				current->cred->fsuid);
 		#if 0
 		STING_LOG("Symlink attack launched: entrypoint: [%s,%lx,%s,%d], "
@@ -909,7 +909,7 @@ restore:
 				current->comm, ept_offset_get(&current->user_stack),
 				int_ept_filename_get(&m->user_stack),
 				int_ept_lineno_get(&m->user_stack),
-				source, current->cred->fsuid, uid_array[att_uid_ind][0],
+				source, current->cred->fsuid, uid_array[adv_id][0],
 				current->comm, target, sn);
 		#endif
 		/* Set xattr on attacker symlink */
@@ -922,9 +922,9 @@ restore:
 				|| (flag & CREATE_DIR)) {
 			/* If existing file/dir requested, create it */
 			if (flag & CREATE_FILE_EXISTENT) {
-				ret = file_create(target, parent, REASON_TARGET, T_REG, sn, att_uid_ind);
+				ret = file_create(target, parent, REASON_TARGET, T_REG, sn, adv_id);
 			} else if (flag & CREATE_DIR) {
-				ret = file_create(target, parent, REASON_TARGET, T_DIR, sn, att_uid_ind);
+				ret = file_create(target, parent, REASON_TARGET, T_DIR, sn, adv_id);
 			}
 			if (ret < 0) {
 				STING_ERR(1, "Actual create %s failed!\n", target);
@@ -938,7 +938,7 @@ restore:
 		}
 	} else {
 		STING_ERR(1, "sting: [%d] couldn't create [%s] although has permission!\n",
-			uid_array[att_uid_ind][0], source);
+			uid_array[adv_id][0], source);
 	}
 
 	dput(child);
@@ -1022,19 +1022,15 @@ int sting_check_attack_specific(struct dentry *parent, int ntest)
 	 * the directory.  such directories are "shared".
 	 * for simplicity, we assume the only non-adversary is the victim
 	 * itself. */
-	uid_t *vic_ug_list;
-	uid_t root_ug_list[] = {0};
 	int ret = 0;
-
-	if (current->cred->fsuid == 0)
-		vic_ug_list = root_ug_list;
-	else
-		vic_ug_list = get_ug_list(current->cred->fsuid);
 
 	/* get group list for current process, and for adversary */
 	if (ntest == SQUAT) {
 		/* does victim have write permission to directory? */
-		ret = uid_has_perm(vic_ug_list, parent, NULL, PERM_PREBIND);
+		ret = sting_adv_model->has_perm(
+				sting_adv_model->sid_to_id(
+					sting_adv_model->get_sid(current->cred)),
+					parent, NULL, PERM_PREBIND);
 		/* we know adversary has permission already. */
 	}
 	return ret;
@@ -1044,7 +1040,7 @@ int sting_check_attack_specific(struct dentry *parent, int ntest)
  * sting_launch_attack() - Launch attack
  * @fname:		Resource name (last component) relative to @parent
  * @parent:		Parent path
- * @a_ind:		Identity of attacker (index in uid_array)
+ * @adv_id:		Identity of attacker
  * @attack_type:	%SYMLINK, %HARDLINK, %SQUAT
  * @sting:		struct sting (whose path and target_path are filled in)
  *
@@ -1052,7 +1048,7 @@ int sting_check_attack_specific(struct dentry *parent, int ntest)
  */
 
 int sting_launch_attack(char *source, struct path *parent,
-		int a_ind, int attack_type, struct sting *sting)
+		int adv_id, int attack_type, struct sting *sting)
 {
 	int tret = 0;
 	struct pt_regs *ptregs = task_pt_regs(current);
@@ -1081,7 +1077,7 @@ int sting_launch_attack(char *source, struct path *parent,
 				get_new_target_file(source, target, uid);
 				tret = symlink_create(source, target, parent,
 						CREATE_FILE_NONEXISTENT, sn,
-						a_ind);
+						adv_id);
 			} else {
 				/* Symlink to existing file of right type -
 				 these don't follow symlinks */
@@ -1094,7 +1090,7 @@ int sting_launch_attack(char *source, struct path *parent,
 							uid);
 					tret = symlink_create(source, target,
 							parent, CREATE_DIR, sn,
-							a_ind);
+							adv_id);
 				} else {
 					get_existing_target_file(source,
 							target, uid);
@@ -1102,7 +1098,7 @@ int sting_launch_attack(char *source, struct path *parent,
 							parent,
 							CREATE_FILE_EXISTENT,
 							sn,
-							a_ind);
+							adv_id);
 				}
 			}
 		} else if (in_set(sn, use_set)) {
@@ -1111,12 +1107,12 @@ int sting_launch_attack(char *source, struct path *parent,
 			if (sn == __NR_chdir) {
 				get_existing_target_dir(source, target, uid);
 				tret = symlink_create(source, target, parent,
-						CREATE_DIR, sn, a_ind);
+						CREATE_DIR, sn, adv_id);
 			} else {
 				get_existing_target_file(source, target, uid);
 				tret = symlink_create(source, target, parent,
 						CREATE_FILE_EXISTENT, sn,
-						a_ind);
+						adv_id);
 			}
 		}
 		break;
@@ -1125,27 +1121,27 @@ int sting_launch_attack(char *source, struct path *parent,
 			if (sn == __NR_mkdir || sn == __NR_mkdirat)
 				tret = file_create(source, parent,
 						REASON_SQUAT, T_DIR, sn,
-						a_ind);
+						adv_id);
 			else if (sn == __NR_socketcall) /* bind */
 				tret = file_create(source, parent,
 						REASON_SQUAT, T_SOCK, sn,
-						a_ind);
+						adv_id);
 			else
 				tret = file_create(source, parent,
 						REASON_SQUAT, T_REG, sn,
-						a_ind);
+						adv_id);
 		} else if (in_set(sn, use_set) || connect_call(sn)) {
 			if (sn == __NR_chdir); /* HACK */
 				// tret = file_create(source, parent,
-				// REASON_SQUAT, T_DIR, sn, a_ind);
+				// REASON_SQUAT, T_DIR, sn, adv_id);
 			else if (sn == __NR_socketcall) /* connect */
 				tret = file_create(source, parent,
 						REASON_SQUAT, T_SOCK, sn,
-						a_ind);
+						adv_id);
 			else
 				tret = file_create(source, parent,
 						REASON_SQUAT, T_REG, sn,
-						a_ind);
+						adv_id);
 		}
 		break;
 	#if 0
@@ -1173,11 +1169,11 @@ int sting_launch_attack(char *source, struct path *parent,
 				/* High -> low redirection */
 				get_existing_target_file(source, target, uid);
 				tret = hardlink_create(source, target, parent,
-						T_SOCK, sn, a_ind);
+						T_SOCK, sn, adv_id);
 			} else {
 				get_existing_target_file(source, target, uid);
 				tret = hardlink_create(source, target, parent,
-						T_REG, sn, a_ind);
+						T_REG, sn, adv_id);
 			}
 		}
 		break;
@@ -1192,7 +1188,7 @@ int sting_launch_attack(char *source, struct path *parent,
 		if (in_set(sn, check_set)) {
 			/* TODO: Run with both is_dir = 1 and 0 */
 			file_create(source, REASON_TOCTTOU_RUNTIME,
-					T_REG, sn, a_ind);
+					T_REG, sn, adv_id);
 		}
 	}
 	#endif
