@@ -29,6 +29,7 @@
 #include "syscalls.h"
 #include "launch_attack.h"
 #include "shadow_resolution.h"
+#include "utility.h"
 
 /* sting_log file */
 
@@ -98,9 +99,9 @@ static struct rw_semaphore frame_list_rwlock;
 
 static unsigned int frame_list_load(void **data, size_t length)
 {
-    struct user_stack_frame *tmp, *n;
-    char *inode_s, *offset_s, *e_s;
-    int ret = 0;
+	struct user_stack_frame *tmp, *n;
+	char *inode_s, *offset_s, *e_s;
+	int ret = 0;
 	ino_t inode;
 	unsigned long offset;
 
@@ -212,7 +213,7 @@ int frame_ignore(struct user_stack_info *us)
 	for (i = 0; i < us->trace.nr_entries - 1; i++) {
 		list_for_each_entry(uf, &frame_list.list, list) {
 			if ((us->trace.vma_inoden[i] == uf->f_ino)) {
-			   	if (uf->offset == 0 ||
+				if (uf->offset == 0 ||
 						us_offset_get(us, i) == uf->offset) {
 					found = true;
 					goto out;
@@ -442,7 +443,6 @@ static int __init sting_init(void)
 	sting_monitor_pid = debugfs_create_file("sting_monitor_pid",
 			0600, NULL, NULL, &sting_monitor_pid_fops);
 	printk(KERN_INFO STING_MSG "creating sting_monitor_pid file\n");
-
 	if(!sting_monitor_pid) {
 		printk(KERN_INFO STING_MSG "unable to create sting_monitor_pid\n");
 	}
@@ -450,7 +450,6 @@ static int __init sting_init(void)
 	sting_frame_ignore = debugfs_create_file("frame_ignore_list",
 			0600, NULL, NULL, &sting_frame_ignore_fops);
 	printk(KERN_INFO STING_MSG "creating sting_frame_ignore file\n");
-
 	if(!sting_frame_ignore) {
 		printk(KERN_INFO STING_MSG "unable to create sting_frame_ignore\n");
 	}
@@ -872,7 +871,7 @@ void sting_syscall_begin(void)
 		if (err) {
 			/* already in use for another attack. add current
 			 * entrypoint to same attack if adversary.
-			 * TODO: if not, mark as redirect to lower branch.  */
+			 * TODO: if not, mark as redirect to lower branch.	*/
 			st->path = child;
 			m = sting_list_get(st, MATCH_INO, NULL);
 			if (!m) {
@@ -1066,7 +1065,7 @@ struct dentry *dentry_from_auditdata(struct common_audit_data *a, char *path)
 	struct inode *inode = NULL;
 
 	strcpy(path, "N/A");
-	//  path = kstrdup("N/A", GFP_ATOMIC);
+	//	path = kstrdup("N/A", GFP_ATOMIC);
 	if (a) {
 		switch (a->type) {
 		case LSM_AUDIT_DATA_DENTRY: {
@@ -1183,7 +1182,7 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 			if (!m) {
 				if (!i)
 					STING_LOG("message: no ongoing attack in sting_list "
-						   	  "although resource already tainted, "
+							  "although resource already tainted, "
 							  "resource: [%s]\n", d->d_name.name);
 				break;
 			}
@@ -1219,8 +1218,8 @@ void sting_log_vulnerable_access(struct common_audit_data *a)
 done:
 	if (d) {
 		if (a->type == LSM_AUDIT_DATA_PATH ||
-		    a->type == LSM_AUDIT_DATA_INODE)
-		    dput(d);
+			a->type == LSM_AUDIT_DATA_INODE)
+			dput(d);
 	}
 
 	if (e)

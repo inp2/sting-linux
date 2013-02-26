@@ -532,7 +532,7 @@ struct adversary_model dac_adv_model = {
 	.print_victim = dac_print_victim
 };
 
-static int __init sting_permission_init(void)
+static int __init dac_adv_model_init(void)
 {
 	struct dentry *uids, *sting_adversary_uid;
 
@@ -554,8 +554,8 @@ static int __init sting_permission_init(void)
 	// register_adversary_model(&mac_adv_model);
 
 	/* set default adversary model */
-	sting_adv_model = &dac_adv_model;
+	// sting_adv_model = &dac_adv_model;
 
 	return 0;
 }
-fs_initcall(sting_permission_init);
+fs_initcall(dac_adv_model_init);
