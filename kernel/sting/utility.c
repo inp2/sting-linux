@@ -57,7 +57,7 @@ static ssize_t sting_secontext_to_sid_write(struct file *filp, const char __user
 		goto out;
 
 	printk(KERN_INFO STING_MSG "secontext copy_from_user (%lu bytes) OK\n", count);
-	if (length = security_context_to_sid(page, count, &new_value))
+	if ((length = security_context_to_sid(page, count, &new_value)))
 		goto out;
 
 	printk(KERN_INFO STING_MSG "secontext security_context_to_sid OK\n");

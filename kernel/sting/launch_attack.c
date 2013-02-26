@@ -524,13 +524,16 @@ int file_create(char __user *fname, struct path* parent,
 					STING_LOG("message: delete success for squat, "
 							"current_entrypoint: [%s:%lx:%s,%lu], resource: [%s], "
 							"system call: [%d], "
-							"adversary uid: [%d], victim uid: [%d]\n",
+							"adversary sid: [%d], victim sid: [%d], "
+							"adversary model: [%s]\n",
 							current->comm, ept_offset_get(&current->user_stack),
 							int_ept_filename_get(&current->user_stack),
 							int_ept_lineno_get(&current->user_stack),
 							fname, sn,
-							uid_array[adv_id][0],
-							current->real_cred->fsuid);
+							sting_adv_model->print_adv(adv_id),
+							sting_adv_model->print_victim(
+								sting_adv_model->get_sid(current->cred)),
+							sting_adv_model->name);
 				}
 			} else {
 				/* no actual deletion, but if done properly, the shadow resolution
@@ -595,7 +598,8 @@ mark:
 			STING_LOG("message: %s attack successfully launched, "
 					"entrypoint: [%s:%lx:%s,%lu], resource: [%s], "
 					"system call: [%d], "
-					"adversary uid: [%d], victim uid: [%d]\n",
+					"adversary sid: [%d], victim sid: [%d], "
+					"adversary model: [%s]\n",
 					((reason == REASON_SQUAT) ? "squat" :
 					 ((reason == REASON_TOCTTOU_RUNTIME) ? "tocttou check" :
 					 "Error")),
@@ -603,8 +607,11 @@ mark:
 					int_ept_filename_get(&current->user_stack),
 					int_ept_lineno_get(&current->user_stack),
 					fname, sn,
-					uid_array[adv_id][0],
-					current->cred->fsuid);
+					sting_adv_model->print_adv(adv_id),
+					sting_adv_model->print_victim(
+						sting_adv_model->get_sid(current->cred)),
+					sting_adv_model->name);
+
 
 		} else if ((reason == REASON_TARGET) || (reason == REASON_NORMAL_RUNTIME)) {
 			STING_LOG("message: %s successful, "
@@ -895,13 +902,16 @@ restore:
 		STING_LOG("message: symlink attack successfully launched, "
 				"entrypoint: [%s:%lx:%s,%lu], resource: [%s], "
 				"target: [%s], system call: [%d], "
-				"adversary uid: [%d], victim uid: [%d]\n",
+				"adversary sid: [%d], victim sid: [%d], "
+				"adversary model: [%s]\n",
 				current->comm, ept_offset_get(&current->user_stack),
 				int_ept_filename_get(&current->user_stack),
 				int_ept_lineno_get(&current->user_stack),
 				source, target, sn,
-				uid_array[adv_id][0],
-				current->cred->fsuid);
+				sting_adv_model->print_adv(adv_id),
+				sting_adv_model->print_victim(
+					sting_adv_model->get_sid(current->cred)),
+				sting_adv_model->name);
 		#if 0
 		STING_LOG("Symlink attack launched: entrypoint: [%s,%lx,%s,%d], "
 				"source: [%s], proc euid: [%d], attacker uid: [%d], "
