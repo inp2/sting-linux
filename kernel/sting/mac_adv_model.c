@@ -258,6 +258,11 @@ static void mac_superuser_creds(struct cred *override_cred)
 	tsec->osid = tsec->sid = MAC_SUPERUSER_ID;
 }
 
+static int mac_sid_to_id(int sid)
+{
+	return sid;
+}
+
 static int mac_print_adv(int adv_id)
 {
 	return adv_id;
@@ -282,6 +287,8 @@ struct adversary_model mac_adv_model = {
 	.fill_superuser_creds = mac_superuser_creds,
 
 	.get_sid = mac_get_sid,
+
+	.sid_to_id = mac_sid_to_id,
 
 	.print_adv = mac_print_adv,
 	.print_victim = mac_print_victim
