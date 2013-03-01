@@ -317,10 +317,10 @@ int try_deleting(char __user *filename)
 /* special check for unionfs */
 int sting_obj_exists(struct dentry *d, int bindex)
 {
-	if (!is_unionfs(d))
+	if (!is_sting_unionfs(d))
 		return !!d->d_inode;
 	else
-		return !!unionfs_lower_dentry_idx_export(d, bindex);
+		return !!sting_unionfs_lower_dentry_idx_export(d, bindex);
 }
 
 static inline void fsnotify_create(struct inode *inode, struct dentry *dentry)
@@ -494,7 +494,7 @@ int file_create(char __user *fname, struct path* parent,
 		exists = sting_obj_exists(child, STING_NON_ADV_BID);
 
 		if (exists) {
-			if (!is_unionfs(child)) {
+			if (!is_sting_unionfs(child)) {
 				/* TODO: If REASON_SQUAT,
 				   preserve contents */
 				/* TODO: If TOCTTOU_RUNTIME,
@@ -703,7 +703,7 @@ int hardlink_create(char *source, char *target, struct path *parent,
 
 	/* Try deleting first if exists */
 	if (exists) {
-		if (!is_unionfs(child)) {
+		if (!is_sting_unionfs(child)) {
 			STING_SYSCALL(ret = sys_unlink(source));
 			if (ret < 0) {
 				if (ret == -ENOENT) {
@@ -827,7 +827,7 @@ int symlink_create(char *source, char *target, struct path *parent,
 	old_cred = sting_adv_model->set_creds(adv_id);
 
 	if (exists) {
-		if (!is_unionfs(child)) {
+		if (!is_sting_unionfs(child)) {
 			/* TODO: If CREATE_FILE_EXISTENT,
 			   then preserve file contents using
 			rename, and do not call REASON_TARGET */
@@ -884,7 +884,7 @@ int symlink_create(char *source, char *target, struct path *parent,
 
 	/* Create the symlink */
 	sting_set_res_type(current, ADV_NORMAL_RES);
-	if (is_unionfs(child)) {
+	if (is_sting_unionfs(child)) {
 		sting_symlink(target, parent, child);
 	} else {
 		STING_SYSCALL(ret = sys_symlinkat(target, AT_FDCWD, source));

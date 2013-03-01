@@ -51,7 +51,7 @@
 #include <linux/union_fs.h>
 
 /* the file system name */
-#define UNIONFS_NAME "unionfs"
+#define UNIONFS_NAME "sting_unionfs"
 
 /* unionfs root inode number */
 #define UNIONFS_ROOT_INO     1
