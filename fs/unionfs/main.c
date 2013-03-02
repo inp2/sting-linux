@@ -19,7 +19,6 @@
 #include "union.h"
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-#include <linux/magic.h>
 
 static void unionfs_fill_inode(struct dentry *dentry,
 			       struct inode *inode)
@@ -57,18 +56,10 @@ static void unionfs_fill_inode(struct dentry *dentry,
 		inode->i_op = &unionfs_symlink_iops;
 	else if (S_ISDIR(lower_inode->i_mode))
 		inode->i_op = &unionfs_dir_iops;
-	else {
-		/* since we dynamically change characteristics, we might
-		 * need to revert to regular ops */
-		inode->i_op = &unionfs_main_iops;
-	}
 
 	/* Use different set of file ops for directories */
 	if (S_ISDIR(lower_inode->i_mode))
 		inode->i_fop = &unionfs_dir_fops;
-
-	/* Reset inode flags, since we may have changed ops above */
-	inode->i_opflags = 0;
 
 	/* properly initialize special inodes */
 	if (S_ISBLK(lower_inode->i_mode) || S_ISCHR(lower_inode->i_mode) ||
@@ -121,13 +112,7 @@ struct dentry *unionfs_interpose(struct dentry *dentry, struct super_block *sb,
 		}
 	} else {
 		/* get unique inode number for unionfs */
-		/* sting: we need consistent inode numbers. simply use the
-		 * inode number of the underlying filesystem.  this assumes
-		 * inode numbers are unique across _all_ filesystems, which
-		 * may not be the case */
-		ino_t lower_ino = unionfs_lower_dentry(dentry)->d_inode->i_ino;
-		inode = unionfs_iget(sb, lower_ino);
-
+		inode = unionfs_iget(sb, iunique(sb, UNIONFS_ROOT_INO));
 		if (IS_ERR(inode)) {
 			err = PTR_ERR(inode);
 			goto out;
@@ -607,7 +592,6 @@ static int unionfs_read_super(struct super_block *sb, void *raw_data,
 	sb->s_time_gran = 1;
 
 	sb->s_op = &unionfs_sops;
-	sb->s_magic = UNIONFS_SUPER_MAGIC;
 
 	/* get a new inode and allocate our root dentry */
 	inode = unionfs_iget(sb, iunique(sb, UNIONFS_ROOT_INO));
@@ -641,8 +625,8 @@ static int unionfs_read_super(struct super_block *sb, void *raw_data,
 		unionfs_set_lower_dentry_idx(sb->s_root, bindex, d);
 		unionfs_set_lower_mnt_idx(sb->s_root, bindex, m);
 	}
-	tdbstart(sb->s_root) = dbstart(sb->s_root) = bstart;
-	tdbend(sb->s_root) = dbend(sb->s_root) = bend;
+	dbstart(sb->s_root) = bstart;
+	dbend(sb->s_root) = bend;
 
 	/* Set the generation number to one, since this is for the mount. */
 	atomic_set(&UNIONFS_D(sb->s_root)->generation, 1);
@@ -698,7 +682,7 @@ out:
 	return err;
 }
 
-static struct dentry *sting_unionfs_mount(struct file_system_type *fs_type,
+static struct dentry *unionfs_mount(struct file_system_type *fs_type,
 				    int flags, const char *dev_name,
 				    void *raw_data)
 {
@@ -714,12 +698,12 @@ static struct dentry *sting_unionfs_mount(struct file_system_type *fs_type,
 static struct file_system_type unionfs_fs_type = {
 	.owner		= THIS_MODULE,
 	.name		= UNIONFS_NAME,
-	.mount		= sting_unionfs_mount,
+	.mount		= unionfs_mount,
 	.kill_sb	= generic_shutdown_super,
 	.fs_flags	= FS_REVAL_DOT,
 };
 
-static int __init sting_init_unionfs_fs(void)
+static int __init init_unionfs_fs(void)
 {
 	int err;
 
@@ -748,7 +732,7 @@ out:
 	return err;
 }
 
-static void __exit sting_exit_unionfs_fs(void)
+static void __exit exit_unionfs_fs(void)
 {
 	stop_sioq();
 	unionfs_destroy_filldir_cache();
@@ -764,5 +748,5 @@ MODULE_DESCRIPTION("Unionfs " UNIONFS_VERSION
 		   " (http://unionfs.filesystems.org)");
 MODULE_LICENSE("GPL");
 
-module_init(sting_init_unionfs_fs);
-module_exit(sting_exit_unionfs_fs);
+module_init(init_unionfs_fs);
+module_exit(exit_unionfs_fs);

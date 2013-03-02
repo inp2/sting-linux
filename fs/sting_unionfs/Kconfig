@@ -1,24 +1,17 @@
 config STING_UNION_FS
-	tristate "Union file system (EXPERIMENTAL)"
+	tristate "STING union file system (EXPERIMENTAL)"
 	depends on EXPERIMENTAL && STING
 	help
-	  Unionfs is a stackable unification file system, which appears to
-	  merge the contents of several directories (branches), while keeping
-	  their physical content separate.
+	  A modification of unionfs for STING to launch and rollback attacks.
 
-	  See <http://unionfs.filesystems.org> for details
-
-config UNION_FS_XATTR
-	bool "Unionfs extended attributes"
+config STING_UNION_FS_XATTR
+	bool "STING Unionfs extended attributes"
 	depends on STING_UNION_FS
 	help
-	  Extended attributes are name:value pairs associated with inodes by
-	  the kernel or by users (see the attr(5) manual page).
+	  STING unionfs extended attributes support.
 
-	  If unsure, say N.
-
-config UNION_FS_DEBUG
-	bool "Debug Unionfs"
+config STING_UNION_FS_DEBUG
+	bool "STING Debug Unionfs"
 	depends on STING_UNION_FS
 	help
-	  If you say Y here, you can turn on debugging output from Unionfs.
+	  If you say Y here, you can turn on debugging output from STING's unionfs.

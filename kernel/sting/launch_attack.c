@@ -33,7 +33,7 @@
 #include <linux/namei.h>
 #include <linux/xattr.h>
 #include <linux/fs_struct.h>
-#include <linux/union_fs.h>
+#include <linux/sting_union_fs.h>
 #include <linux/mount.h>
 #include <linux/security.h>
 #include <linux/fsnotify_backend.h>
