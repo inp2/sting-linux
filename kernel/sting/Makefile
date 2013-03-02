@@ -2,6 +2,7 @@ obj-$(CONFIG_STING)	+=	dict.o
 obj-$(CONFIG_STING)	+=	ept_dict.o
 obj-$(CONFIG_STING)	+=	sting.o
 obj-$(CONFIG_STING)	+=	syscall_filename.o
+obj-$(CONFIG_STING)	+=	syscalls.o
 obj-$(CONFIG_STING)	+=	permission.o
 obj-$(CONFIG_STING) += 	dac_adv_model.o
 obj-$(CONFIG_STING) += 	mac_adv_model.o
