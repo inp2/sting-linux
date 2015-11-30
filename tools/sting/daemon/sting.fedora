@@ -1,0 +1,72 @@
+#!/bin/bash
+# sting         Bring up/down stingd
+#
+# chkconfig: 2345 0 90
+# description: Activates/Deactivates stingd using configurations
+#
+### BEGIN INIT INFO
+# Provides: sting
+# Should-Start: stingd
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Bring up/down stingd
+# Description: Bring up/down stingd
+### END INIT INFO
+
+. /etc/rc.d/init.d/functions
+
+prog="/usr/local/bin/stingd"
+lib="/usr/local/bin/stingd_lib"
+DEBUGFS_MOUNT_PATH="/sys/kernel/debug"
+STING_CONFIG_PATH="/etc/sting/"
+
+load_sting_config ()
+{
+	for f in $(ls $STING_CONFIG_PATH)
+	do
+		bf=$(basename $f)
+        [ "$bf" == "sting_monitor_pid" ] && continue
+		if [ -f $DEBUGFS_MOUNT_PATH/$bf ]
+		then
+			echo "cat $STING_CONFIG_PATH/$bf > $DEBUGFS_MOUNT_PATH/$bf"
+			cat $STING_CONFIG_PATH/$bf > $DEBUGFS_MOUNT_PATH/$bf
+		fi
+	done
+    cat $STING_CONFIG_PATH/sting_monitor_pid > $DEBUGFS_MOUNT_PATH/sting_monitor_pid
+}
+
+start ()
+{
+	success "Starting $prog: "
+	load_sting_config
+	if $prog $DEBUGFS_MOUNT_PATH
+	then 
+		success "Started"
+        touch /var/run/stingd.pid
+	else
+		failure "Non started"
+	fi 
+}
+
+stop ()
+{
+	success "Stopping $prog: "
+	killall -9 stingd
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+

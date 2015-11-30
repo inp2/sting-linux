@@ -1,0 +1,9 @@
+make_attacker_dirs.py: 
+	Run to setup per-user directories on the filesystem.  Files will be created here and symlinks will point here. 
+
+user_group.py:
+	This generates the list of users and groups they belong to (except for root), that can be piped to /sys/kernel/debug/uids
+
+is_attacker_marked.sh [directory]:
+	Given a directory, find the list of all files under that directory that are marked by the attacker (having the xattr security.attacker as defined in wall.h)
+	

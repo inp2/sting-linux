@@ -100,8 +100,11 @@ uids_write(struct file *filp, const char __user *ubuf,
 		j = 0;
 		if (!strcmp(token, ""))
 			break;
-		while ((p = strsep(&token, " ")) && (j < GRP_MEMB_MAX))
+		while ((p = strsep(&token, " ")) && (j < GRP_MEMB_MAX)) {
+			printk(KERN_INFO STING_MSG "uid_array[%d][%d] = %d", 
+				i, j, simple_strtoul(p, NULL, 10)); 
 			uid_array[i][j++] = simple_strtoul(p, NULL, 10);
+		}
 		i++;
 	}
 

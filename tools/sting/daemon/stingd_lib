@@ -1,0 +1,25 @@
+#!/bin/bash
+
+STING_LOG_DIR="/var/log/sting"
+STING_LOG="sting_log"
+EPT_DICT="ept_dict"
+EPT_DICT_DUMP_READ="ept_dict_dump"
+
+function sting_save()
+{
+	# Save ept dict 
+	cat $DEBUGFS_MOUNT_PATH/$EPT_DICT > /dev/null
+	cat $DEBUGFS_MOUNT_PATH/$EPT_DICT_DUMP_READ* > $STING_LOG_DIR/$EPT_DICT
+
+	# Save sting log 
+	cat $DEBUGFS_MOUNT_PATH/$STING_LOG* >> $STING_LOG_DIR/$STING_LOG
+}
+
+function sting_save_loop() 
+{
+	while [ 1 -eq 1 ] 
+	do 
+		sleep 5
+		sting_save
+	done
+}

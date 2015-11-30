@@ -1,0 +1,83 @@
+#! /bin/sh
+set -e
+
+#. /scripts/functions
+
+PREREQ="framebuffer console_setup"
+
+prereqs () {
+	echo "$PREREQ"
+}
+
+case $1 in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+mkdir -p ${rootmnt}/sys/kernel/debug
+set +e
+
+echo "Mounting /sys/kernel/debug ... "
+mount -t debugfs none ${rootmnt}/sys/kernel/debug || \
+    log_warning_msg "Unable to mount /sys/kernel/debug"
+
+if [ ! -f ${rootmnt}/sys/kernel/debug/sting_monitor_pid ]
+then
+	# not a STING kernel
+	exit 0
+fi
+
+if [ -f ${rootmnt}/etc/sting/uids ] && [ -f ${rootmnt}/sys/kernel/debug/uids ]
+then
+	echo "Loading UIDs (DAC adversary info) ... "
+	cat ${rootmnt}/etc/sting/uids > ${rootmnt}/sys/kernel/debug/uids
+fi
+
+if [ -f ${rootmnt}/etc/sting/adversary_uid ] && [ -f ${rootmnt}/sys/kernel/debug/adversary_uid ]
+then
+	echo "Loading adversary UID ... "
+	cat ${rootmnt}/etc/sting/adversary_uid > ${rootmnt}/sys/kernel/debug/adversary_uid
+fi
+
+if [ -f ${rootmnt}/etc/sting/adversary_homedir ] && [ -f ${rootmnt}/sys/kernel/debug/adversary_homedir ]
+then
+	echo "Loading adversary home directory ... "
+	cat ${rootmnt}/etc/sting/adversary_homedir > ${rootmnt}/sys/kernel/debug/adversary_homedir
+fi
+
+if [ -f ${rootmnt}/etc/sting/ld_inode ] && [ -f ${rootmnt}/sys/kernel/debug/ld_inode ]
+then
+	echo "Loading ld.so's inode ... "
+	cat ${rootmnt}/etc/sting/ld_inode > ${rootmnt}/sys/kernel/debug/ld_inode
+fi
+
+if [ -f ${rootmnt}/etc/sting/sting_monitor_pid ] && [ -f ${rootmnt}/sys/kernel/debug/sting_monitor_pid ]
+then
+	echo "Loading PID for sting to monitor ... "
+	cat ${rootmnt}/etc/sting/sting_monitor_pid > ${rootmnt}/sys/kernel/debug/sting_monitor_pid
+fi
+
+if [ -f ${rootmnt}/etc/sting/interpreter_info ] && [ -f ${rootmnt}/sys/kernel/debug/interpreter_info ]
+then
+	echo "Loading interpreter unwind information ... "
+	cat ${rootmnt}/etc/sting/interpreter_info > ${rootmnt}/sys/kernel/debug/interpreter_info
+fi
+
+if [ -f ${rootmnt}/etc/sting/frame_ignore_list ] && [ -f ${rootmnt}/sys/kernel/debug/frame_ignore_list ]
+then
+	echo "Loading list of frames to ignore ... "
+	cat ${rootmnt}/etc/sting/frame_ignore_list > ${rootmnt}/sys/kernel/debug/frame_ignore_list
+fi
+
+if [ -f ${rootmnt}/var/log/sting/ept_dict ] && [ -f ${rootmnt}/sys/kernel/debug/ept_dict ]
+then
+	echo "Loading saved sting tests ... "
+	sting_restore_ept_dict ${rootmnt}/sys/kernel/debug ${rootmnt}/var/log/sting/ept_dict
+fi
+
+echo "Unmounting /sys/kernel/debug ... "
+umount ${rootmnt}/sys/kernel/debug
+
+exit 0

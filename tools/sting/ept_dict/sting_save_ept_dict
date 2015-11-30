@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if [ $# -ne 2 ]
+then
+	echo "$0 [debugfs_mount_path] [save_file]"
+	exit 0
+fi
+
+DEBUGFS_MOUNT_PATH=$1
+EPT_DICT="ept_dict"
+EPT_DICT_DUMP_READ="ept_dict_dump"
+OUT_FILE=$2
+
+cat $DEBUGFS_MOUNT_PATH/$EPT_DICT > /dev/null
+cat $DEBUGFS_MOUNT_PATH/$EPT_DICT_DUMP_READ* > $OUT_FILE

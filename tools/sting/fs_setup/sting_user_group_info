@@ -1,0 +1,44 @@
+#!/usr/bin/env python
+"""
+	This script prints the user and group IDs for the file
+	/sys/kernel/debug/uids in the following format :
+	[uid] [list of gids this uid belongs to]
+	e.g., 1000 1000 5 80 122
+	The list of gids are the primary group and any supplementary groups.
+"""
+
+import pwd
+import grp
+import sys
+
+# Dict of usernames -> uid
+nu = {}
+
+# Dict of uid -> [list_of_groups]
+ug = {}
+
+def generate_username_uid_map():
+	users = pwd.getpwall()
+	for user in users:
+		nu[user.pw_name] = user.pw_uid
+		ug[user.pw_uid] = []
+		ug[user.pw_uid].append(user.pw_gid)
+
+def main():
+	generate_username_uid_map()
+	groups = grp.getgrall()
+	for group in groups:
+		for username in group.gr_mem:
+			if username in nu:
+				ug[nu[username]].append(group.gr_gid)
+
+	for u, l in ug.items():
+		if (u == 0): # root user not needed
+			continue
+		print str(u),
+		for g in l:
+			print str(g),
+		print ""
+	print "\b"
+if __name__ == "__main__":
+	sys.exit(main())

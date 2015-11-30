@@ -1,0 +1,49 @@
+#!/usr/bin/env python
+"""
+	This script makes the directories 
+	/attacker/uid  owned by uid foreach uid in system. 
+	This script HAS to be run as root
+"""
+
+import pwd
+import grp
+import sys
+import os
+import subprocess
+import errno
+
+ATTACKER_DIR_PREFIX = "/attacker/"
+
+def generate_username_uid_map():
+	users = pwd.getpwall()
+	for user in users:
+		nu[user.pw_name] = user.pw_uid
+		ug[user.pw_uid] = []
+		ug[user.pw_uid].append(user.pw_gid)
+
+def mkdir_p(path):
+	try:
+		os.makedirs(path)
+	except OSError as exc: 
+		if exc.errno == errno.EEXIST:
+			pass
+		else: 
+			raise
+def main():
+
+	users = pwd.getpwall()
+	mkdir_p(ATTACKER_DIR_PREFIX)
+	# Create directories owned by each of the users
+	for user in users:
+		path = ATTACKER_DIR_PREFIX + str(user.pw_uid)
+		mkdir_p(path)
+		os.chown(path, user.pw_uid, user.pw_gid)
+
+	# Add the user "attacker"
+	output = subprocess.Popen(["adduser", "attacker"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()[0]	
+
+if __name__ == "__main__":
+	if os.getuid() != 0:
+		print "Needs to be run as root user so directories are created"
+		sys.exit(1)
+	sys.exit(main())

@@ -1,0 +1,179 @@
+#!/bin/sh
+
+usage ()
+{
+	echo "$0 [interpreter=(bash|php5)]"
+	exit 1
+}
+
+INTERPRETER_PATH="$(which $1)"
+DBG_FILE="/usr/lib/debug/$INTERPRETER_PATH"
+INSTALL_DIR="/etc/sting"
+INTERPRETER_INFO_FILE="$INSTALL_DIR/interpreter_info"
+INTERPRETER=$1
+symtab_binary=""
+
+exit_unsupported ()
+{
+	echo "STING will not support $INTERPRETER: $1"
+	exit 0
+}
+
+get_addr ()
+{
+
+	abs="0x"$(objdump -t $symtab_binary | grep " $1$" | awk '{ print $1 }')
+	base=$(objdump -p $symtab_binary | grep -B1 "r-x" | grep LOAD | awk '{print $5 }')
+
+	printf "%x" $(($abs - $base))
+}
+
+get_size ()
+{
+	objdump -t $symtab_binary | grep " $1$" | awk '{ print $5 }'
+}
+
+has_symtab ()
+{
+	file $1 | grep "not stripped" > /dev/null
+	if [ $? -eq 0 ]
+	then
+		echo 1
+	else
+		echo 0
+	fi
+}
+
+check_supported ()
+{
+	objdump -t $symtab_binary | grep " $1$" > /dev/null
+	if [ $? -ne 0 ]
+	then
+		exit_unsupported "unsupported $INTERPRETER version (symbol $1 not found)"
+	fi
+}
+
+if [ $# -ne 1 ]
+then
+	usage
+fi
+
+install -d -m 755 $INSTALL_DIR
+if [ ! -f $INTERPRETER_INFO_FILE ]
+then
+	touch $INTERPRETER_INFO_FILE
+fi
+
+# use the following search paths to search for symtab versions of binary
+	# /usr/lib/debug (for Debian ddebs)
+	# output of which (executable)
+	# ask user for absolute path
+
+echo "searching for symtab information for $INTERPRETER ... "
+
+for f in $DBG_FILE $INTERPRETER_PATH
+do
+	echo -n "$f ... "
+	if [ -f $f ]
+	then
+		echo -n "found "
+		hd=$(has_symtab $f)
+		if [ $hd -eq 1 ]
+		then
+			echo "and has symtab info"
+			symtab_binary=$f
+			break
+		else
+			echo "but no symtab info"
+		fi
+	else
+		echo "not found"
+	fi
+done
+
+if [ X"$symtab_binary" = X ]
+then
+	# get path from user
+	while [ 1 -eq 1 ]
+	do
+		echo -n "enter path for $INTERPRETER unstripped binary [blank for none]: "
+		read f
+
+		if [ X"$f" = X ]
+		then
+			exit_unsupported "no unstripped binary found"
+		fi
+
+		if [ -f $f ]
+		then
+			echo -n "found "
+			hd=$(has_symtab $f)
+			if [ $hd -eq 1 ]
+			then
+				echo "and has symtab info"
+				symtab_binary=$f
+				break
+			else
+				echo "but no symtab info"
+			fi
+		else
+			echo "not found"
+		fi
+	done
+fi
+
+
+if [ "$INTERPRETER" = "bash" ]
+then
+	sed -i '/bash/d' $INTERPRETER_INFO_FILE
+
+	echo -n "checking for presence of required symbols ... "
+	for symbol in execute_command shell_variables currently_executing_command executing showing_function_line variable_context interactive_shell line_number
+	do
+		check_supported $symbol
+	done
+
+	echo "done"
+
+	printf "bash:%s:0x%s:0x%s:" \
+			"$(stat -c%i $symtab_binary)" \
+			"$(get_addr execute_command)" \
+			"$(get_size execute_command)" \
+				>> $INTERPRETER_INFO_FILE
+
+	printf "7:g:0x%s:g:0x%s:g:0x%s:g:0x%s:g:0x%s:g:0x%s:g:0x%s\n" \
+			"$(get_addr shell_variables)" \
+			"$(get_addr currently_executing_command)" \
+			"$(get_addr executing)" \
+			"$(get_addr showing_function_line)" \
+			"$(get_addr variable_context)" \
+			"$(get_addr interactive_shell)" \
+			"$(get_addr line_number)" \
+				>> $INTERPRETER_INFO_FILE
+
+	echo "$INTERPRETER debug information successfully written to $INTERPRETER_INFO_FILE"
+elif [ "$INTERPRETER" = "php5" ]
+then
+	sed -i '/php5/d' $INTERPRETER_INFO_FILE
+
+	echo -n "checking for presence of required symbols ... "
+	for symbol in execute executor_globals
+	do
+		check_supported $symbol
+	done
+
+	echo "done"
+	printf "php5:%s:0x%s:0x%s:" \
+			"$(stat -c%i $symtab_binary)" \
+			"$(get_addr execute)" \
+			"$(get_size execute)" \
+				>> $INTERPRETER_INFO_FILE
+
+	printf "1:g:0x%s\n" \
+			"$(get_addr executor_globals)" \
+				>> $INTERPRETER_INFO_FILE
+
+	echo "$INTERPRETER debug information successfully written to $INTERPRETER_INFO_FILE"
+else
+	usage
+fi

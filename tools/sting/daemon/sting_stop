@@ -1,0 +1,29 @@
+#!/bin/bash
+# This saves the ept_dict during shutdown
+
+lib="/usr/local/bin/stingd_lib"
+DEBUGFS_MOUNT_PATH="/sys/kernel/debug"
+
+. /lib/lsb/init-functions
+
+case "$1" in
+  start)
+	# No-op
+	;;
+  restart|reload|force-reload)
+	echo "Error: argument '$1' not supported" >&2
+	exit 3
+	;;
+  stop)
+	source $lib
+	log_action_begin_msg "Saving sting_ept_dict"
+	sting_save # one last time before shutting down
+	log_action_end_msg 0
+	;;
+  *)
+	echo "Usage: $0 start|stop" >&2
+	exit 3
+	;;
+esac
+
+

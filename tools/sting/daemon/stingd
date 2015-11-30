@@ -1,0 +1,11 @@
+#!/bin/bash
+
+
+DEBUGFS_MOUNT_PATH="/sys/kernel/debug"
+
+source /usr/local/bin/stingd_lib
+
+mkdir -p $STING_LOG_DIR
+
+# Daemonize
+sting_save_loop 1>/dev/null 2>/dev/null &

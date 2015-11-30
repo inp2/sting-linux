@@ -1,0 +1,61 @@
+#!/bin/sh
+
+UIDS="/etc/sting/uids"
+ADVERSARY_UID="/etc/sting/adversary_uid"
+ADVERSARY_HOMEDIR="/etc/sting/adversary_homedir"
+LD_INODE="/etc/sting/ld_inode"
+INIT_BOTTOM="/usr/share/initramfs-tools/scripts/init-bottom"
+INIT_HOOKS="/usr/share/initramfs-tools/hooks"
+
+# TODO: shift debian-specific installs elsewhere
+
+if [ "$1" = "uninstall" ]
+then
+	rm -f $UIDS
+	rm -f $ADVERSARY_UID
+	rm -f $ADVERSARY_HOMEDIR
+	# rm -f $UTILITY_PROGS
+	rm -f $LD_INODE
+	rm -f $INIT_HOOKS/sting
+	sed -i "s/PREREQ=\"\([^\"]\)\"$/PREREQ=\"\"/" $INIT_BOTTOM/udev
+	rm -f $INIT_HOOKS/_sting
+	rm -f $INIT_BOTTOM/unionfs
+elif [ "$1" = "install" ]
+then
+	install -d -m 755 /usr/local/bin
+	install -c -m 755 sting_marked /usr/local/bin/
+	install -d -m 755 /etc/sting
+
+	# setup directory structure in /attacker/ for symlink stings
+	chmod +x ./sting_setup_attacker_dirs
+	./sting_setup_attacker_dirs
+
+	# UID information as DAC adversary model
+	chmod +x ./sting_user_group_info
+	./sting_user_group_info > $UIDS
+
+	# TODO: MAC adversary model
+
+	# world adversary UID
+	id -u attacker > $ADVERSARY_UID
+
+	# world adversary home directory
+	stat -c%i "/home/attacker" > $ADVERSARY_HOMEDIR
+
+	# inode of ld.so
+	stat -c%i -L "/lib/ld-linux.so.2" > $LD_INODE
+
+	# disable monitoring by default
+	echo 0 > /etc/sting/sting_monitor_pid
+
+	# initramfs files
+	install -c -m 755 sting $INIT_HOOKS
+	install -c -m 755 _sting $INIT_BOTTOM
+	install -c -m 755 udev $INIT_BOTTOM
+	# install -c -m 755 unionfs $INIT_BOTTOM
+else
+	echo "usage: $0 [install|uninstall]"
+	exit 1
+fi
+
+exit 0

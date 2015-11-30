@@ -1,0 +1,57 @@
+#!/bin/bash
+# This starts the logging daemon for sting
+
+. /lib/lsb/init-functions 
+
+prog="/usr/local/bin/stingd"
+lib="/usr/local/bin/stingd_lib"
+DEBUGFS_MOUNT_PATH="/sys/kernel/debug"
+STING_CONFIG_PATH="/etc/sting/"
+
+load_sting_config ()
+{
+	for f in $(ls STING_CONFIG_PATH)
+	do
+		bf=$(basename $f)
+		if [ -f $DEBUGFS_MOUNT_PATH/$bf ]
+		then
+			echo "cat $STING_CONFIG_PATH/$bf > $DEBUGFS_MOUNT_PATH/$bf"
+			cat $STING_CONFIG_PATH/$bf > $DEBUGFS_MOUNT_PATH/$bf
+		fi
+	done
+}
+
+start ()
+{
+	log_daemon_msg "Starting $prog: "
+	load_sting_config
+	if start-stop-daemon --start --pidfile /var/run/stingd.pid --exec $prog -- $DEBUGFS_MOUNT_PATH
+	then 
+		log_end_msg 0 || true
+	else
+		log_end_msg 1 || true
+	fi 
+}
+
+stop ()
+{
+	log_daemon_msg "Stopping $prog: "
+	killall -9 stingd
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
