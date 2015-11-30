@@ -314,11 +314,10 @@ static int __init mac_adv_model_init(void)
 	}
 
 
-	register_adversary_model(&mac_adv_model);
 	// register_adversary_model(&mac_adv_model);
 
 	/* set default adversary model */
-	sting_adv_model = &mac_adv_model;
+	// sting_adv_model = &mac_adv_model;
 
 	return 0;
 }

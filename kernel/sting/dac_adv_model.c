@@ -56,7 +56,7 @@ uids_read(struct file *file, char __user *ubuf,
 		ret = -ENOMEM;
 		goto out;
 	}
-	for (i = 0; uid_array[i]; i++)
+	for (i = 1; uid_array[i][0]; i++)
 		printk(KERN_INFO STING_MSG "uid: %d\n", uid_array[i][0]);
 	strcpy(buf, "See printk buffer\n");
 	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, strlen(buf) + 1);
@@ -557,7 +557,7 @@ static int __init dac_adv_model_init(void)
 	// register_adversary_model(&mac_adv_model);
 
 	/* set default adversary model */
-	// sting_adv_model = &dac_adv_model;
+	sting_adv_model = &dac_adv_model;
 
 	return 0;
 }
