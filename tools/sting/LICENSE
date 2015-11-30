@@ -1,8 +1,23 @@
- /*
- * Copyright (c) 2011-2012 Hayawardh Vijayakumar <hvijay@.cse.psu.edu>
+COPYRIGHT AND LICENSE
+=====================
+
+STING is:
+
  * Copyright (c) 2011-2012 Systems and Internet Infrastructure Security Lab
  * Copyright (c) 2011-2012 The Pennsylvania State University
- *
+
+STING (both the kernel modifications and user-space tools) were implemented by
+
+ * Copyright (c) 2011-2012 Hayawardh Vijayakumar <hvijay@.cse.psu.edu>
+
+The STING kernel patch is released under the GNU GPL version 2:
+
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+
+The STING user-space tools are released under the Apache License version 2.0:
+
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,4 +29,3 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */

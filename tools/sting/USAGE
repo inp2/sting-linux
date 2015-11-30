@@ -1,0 +1,196 @@
+USAGE
+=====
+
+For the impatient reader who has installed STING, to start immediate
+testing, read "Selecting processes for STING to test" below. Once this
+is set up, STING will start testing immediately, and results will be
+available in the log. The log messages are mostly self-explanatory,
+but its format is documented below in any case. Optionally, read
+through the EXAMPLE SCENARIO section below. 
+
+STING CONCEPTS
+
+Maintaining history: Program Entrypoints
+
+STING needs to maintain a history of system calls already tested, so
+it can make forward progress. It maintains history using the concept
+of "program entrypoints". A program entrypoint is the instruction in
+the program binary that calls a library function (which eventually
+makes a system call). The program entrypoint is extracted from inside
+the kernel by backtracking into the stack of program function calls at
+the time the system call is made. For interpreters, the script
+filename and line number are needed in addition to identify the
+entrypoint. Thus, an entrypoint is a tuple 
+<program binary, program entrypoint, script filename, script line number>, 
+where the program binary is the inode number of the binary. This
+history information (along with whether the entrypoints are vulnerable
+or not) is permanently maintained in the file /var/log/sting/ept_dict.
+This file is pushed into the kernel during every boot cycle. 
+
+STING USERSPACE CONFIGURATION
+
+Configuration files for STING are stored in /etc/sting. If any of
+these are changed, the sting daemon has to be restarted to load the
+configuration into the kernel (it does this through files in
+/sys/kernel/debug) as follows: 
+
+/etc/init.d/sting restart
+
+1. Selecting processes for STING to test 
+
+/etc/sting/sting_monitor_pid
+
+This file contains a single PID that selects processes for STING to
+test. We can either whitelist or blacklist PIDs. A whitelisted or
+blacklisted PID also applies to all its descendant processes. 
+
+o Whitelisting PIDs.  A PID > 0 will put STING in whitelisting mode.
+STING will test only PID and its descendants. As a special case, 
+the value 1 will enable STING system-wide, as
+all processes are descendants of the init (PID 1) process. 
+
+o Blacklisting PIDs. A PID < 0 will put STING in blacklisting mode.
+STING will not test -PID and its descendants, but will test all other
+processes. As a special case, the value -1 will disable STING
+system-wide, as all processes are descendants of the init (PID 1)
+process. 
+
+Note: Reload the configuration after any change (as shown above). 
+
+2. Ignoring particular entrypoints or entire binaries
+
+/etc/sting/frame_ignore_list
+
+This file is a list of lines that identify particular entrypoints that
+STING should not test. Each line has the following format: 
+
+[library/program absolute path] [entrypoint in hexadecimal | 0]
+
+Sometimes, a library may be performing a name resolution operation
+without the program's involvement. For example, libdbus connects to
+system_bus_socket. By default, STING identifies history by program
+entrypoints and will test libdbus each time it is invoked by any new
+program. However, if we know that libdbus does not (or does) have a
+vulnerability, we may not want to test it further. To do this, we list
+the library's absolute path and the corresponding library entrypoint
+in hexadecimal (present on the user stack, obtained from the log (see
+below)). 
+
+As a special case, an entrypoint 0 means the whole library
+should not be tested.  Thus, if that library occurs on the stack
+during a system call, STING will not test that system call. 
+
+For example, 
+
+/lib/i386-linux-gnu/libdbus-1.so.3.5.8 8dc5
+/usr/lib/i386-linux-gnu/libgio-2.0.so.0.3200.3 0
+
+excludes testing of: (1) the entrypoint 8dc5 in libdbus which occurs on the
+user stack if and only if the file /var/run/dbus/system_bus_socket is
+accessed, and (2) the entire library libgio. 
+
+ADDITIONAL AUTOMATICALLY GENERATED CONFIGURATION
+
+All files below are generated during installation of the sting
+user-space package. If you want to regenerate these files, simply
+re-install the sting user-space package 
+
+1. Interpreter backtrace
+
+/etc/sting/interpreter_info 
+
+STING currently supports finding entrypoints (script and line number)
+for Bash and PHP scripts.  Versions 4.2.24 (Bash) and 5.3.10 (PHP)
+have been tested, but we assume more versions should work. STING
+performs backtrace by using code copied from interpreters, and
+requires the address of several global variables for this to work.
+These are stored in the file /etc/sting/interpreter_info. 
+
+2. UID of adversary 
+
+/etc/sting/adversary_uid
+
+STING creates a global adversary (called "attacker"). The UID of this
+user should be in this file (obtained from /etc/passwd). This file is
+automatically filled in during install. 
+
+3. inode of ld.so 
+
+/etc/sting/ld_inode
+
+This file contains the inode of ld.so, the dynamic linker/loader. It
+is needed in some cases for accurate stack backtrace. This file is
+automatically filled in during install. 
+
+4. User and group IDs for the DAC adversary model
+
+/etc/sting/uids
+
+This file contains the list of user and group IDs that STING uses to
+find possible adversaries. For a user X, any user Y (except root) is a
+possible adversary. 
+
+COMMANDS
+
+1. sting_read_ept_dict
+
+This command lists the contents of the entrypoint history. This lists
+each entrypoint that STING tested (the tuple <program inode, program
+entrypoint, script filename, script line number>) and the results of
+that test. 
+
+2. sting_marked 
+
+STING marks files it creates using extended attributes. This command
+tells whether a particular file was generated by STING during the
+course of its testing. 
+
+LOG FORMAT
+
+STING's log is in the file /var/log/sting/sting_log and is in a format
+similar to JSON. The log is mostly self-explanatory. The "message" key
+in the log gives the type/purpose of the message. 
+
+1. Result messages. These give results of testing -- whether an
+entrypoint is vulnerable or not. 
+
+2. Action messages. These detail the actions that STING carries out
+during its tests: deleting resources, creating reosurces and symbolic
+links, whether launching an attack was successful, adding to and
+deleting from the list of ongoing "stings" (sting_list) etc. 
+
+As examples, 
+
+3. Error/warning messages. These give any warnings or errors STING
+encountered during testing. 
+
+
+
+EXAMPLE SCENARIO
+
+We will go through a sample run to show how vulnerabilities are logged
+by STING and how to track them back to source code. For demonstration
+purposes, we will use two vulnerable programs -- one a BASH script,
+and another a C program. 
+
+These two programs are in the tests/ directory. 
+
+1. Launch a Bash shell inside the VM where STING is installed. 
+2. Instruct STING to track only our current shell and its descendants. 
+	echo $$ > /etc/sting/sting_monitor_pid # $$ is a BASH
+special sequence for self PID. You can find the PID of the process to
+monitor using the ps command
+	/etc/init.d/sting restart
+	(or equivalently)
+	echo $$ > /sys/kernel/debug/sting_monitor_pid 
+3. Run a sample vulnerable command: 
+	$ echo > /tmp/test2
+	* this command creates the test2 (if one does not exist) with 
+		insecure flags -- an adversary can launch a symbolic link
+		attack. STING finds this possibility and the vulnerability. 
+	$ cat /var/log/sting/sting.log
+
+[kernel/sting/launch_attack.c:914]: message: symlink attack successfully launched, entrypoint: [bash:6d6d4:(null),0], resource: [test2], target: [/attacker/1000/new_file_test2], system call: [5], adversary sid: [1001], victim sid: [1000], adversary model: [dac]
+[kernel/sting/sting.c:322]: message: added to sting_list, entrypoint: [bash:6d6d4:(null):0], resource: [test2], adversary sid: [1001], victim sid: [1000], adversary model: [dac]
+[kernel/sting/sting.c:1215]: message: vulnerable name resolution: sting_entrypoint: [bash:6d6d4:(null),0], resource: [/tmp/test2], system call: [5], attack_type: [symlink], adversary sid: [1001], victim sid: [1000], adversary model: [dac]
+[kernel/sting/sting.c:344]: message: deleted from sting_list, entrypoint: [bash:6d6d4:(null):0], resource: [test2], adversary sid: [1001], victim sid: [1000], adversary model: [dac]

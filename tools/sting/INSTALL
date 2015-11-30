@@ -1,0 +1,137 @@
+INSTALLATION INSTRUCTIONS FOR STING-1.3
+=======================================
+
+**** WARNING ****  **** WARNING ****  **** WARNING ****  **** WARNING ****
+
+STING WILL POSSIBLY DELETE CRITICAL SYSTEM FILES WHILE TESTING. DO NOT
+INSTALL STING ON A PRODUCTION SYSTEM OR A SYSTEM WITH CRITICAL
+FILES!
+
+Instead, test STING on a replica of your production setup (e.g., a VM
+clone).
+
+
+MANUAL STEPS. 
+============
+
+Broad steps: 
+	- Install kernel 
+	- Install userspace components
+		- Install startup script and initramfs scripts (only if you want to start on bootup)
+		- Install debug versions of packages
+
+*** NOTE *** STING CURRENTLY ONLY WORKS ON A 32-BIT SYSTEM
+
+Ubuntu 14.04 LTS 32-bit: 
+
+1. Install Ubuntu
+
+2. Prerequisites for STING kernel 
+    $ sudo apt-get install git libncurses5-dev build-essential coreutils selinux selinux-utils selinux-policy-ubuntu
+	# selinux will ask you to reboot. do it.
+
+4. Get STING source code (may use as much as 20GB)
+    $ git clone https://github.com/TJAndHisStudents/sting-linux
+	
+5. Configure STING kernel
+	$ cd sting-linux
+	$ cp /boot/config-`uname -r` .config
+    $ make menuconfig (select below in the order given)
+        1) General setup 
+           [*] Prompt for development and/or incomplete code/drivers
+        2) Processor type and features
+           -> Preemption Model
+              (X) Preemptible Kernel (Low-Latency Desktop)
+        3) Security options
+        	[*] NSA SELinux Support
+			-> Default security module
+			  (X) SELinux
+        4) Security options
+           [*] Detect vulnerabilities in programs
+
+7. Build STING kernel
+    $ make # -jX for faster build
+    $ sudo make modules_install
+    $ sudo make install
+
+8. Reboot system and test kernel
+	$ sudo reboot
+	* press ESC to bring up GRUB and choose the following
+		-> Advanced options for Ubuntu 
+		-> Ubuntu, with Linux 3.4.0-sting-1.3+ 
+    $ uname -r # you should see 3.4.0-sting-1.3+
+
+9. Prerequisites for STING userspace 
+	$ sudo apt-get install python-pyxattr initramfs-tools binutils
+
+9. Install sting userspace tools
+    $ cd sting-linux/tools/sting
+    $ make
+    $ make install 
+
+10. Update initramfs
+	* this enables configuration scripts in /etc/sting to be loaded 
+		into the kernel at /sys/kernel/debug
+	update-initramfs -u -k 3.4.0-sting-1.3+
+
+11. Reboot and choose the sting kernel (as in step 8). 
+
+12. Verify that the initramfs scripts worked
+	$ cat /sys/kernel/debug/adversary_uid 
+		# should print e.g., 1001, NOT -1
+		# if -1, then the initramfs scripts did not work
+		# modify sting-linux/tools/sting/fs_setup/_sting and run it manually
+	
+
+Fedora-18-i686 (Steps may be missing; refer Ubuntu instructions)
+
+1. Install Fedora
+2. Enable sshd by 
+    * systemctl enable sshd
+    * service start sshd
+3. Install appropriate tools for STING
+    * yum install git-core
+    * sudo yum install bash-debuginfo
+    * sudo yum install php-debuginfo
+    * sudo yum install glibc-static
+
+4. Get STING source code (may use as much as 20GB)
+    * git clone ssh://git@siisgit.cse.psu.edu/sting-linux
+    * git checkout -b sting-3.4 origin/sting-3.4
+5. Download Fedora Core patches (patch-3.4.6)
+    * wget http://repo.elemc.name/repos/kernel-3.4.6-4/kernel-3.4.6-4.fc17.src.rpm
+    * rpm -iv kernel-3.4.6-4.fc17.src.rpm
+    * cd ~/rpmbuild/SOURCES
+    * unxz patch-3.4.6.xz
+6. Patch the standard kernel (change path accordingly)
+    * cp patch-3.4.6 ~/sting-linux
+    * cd ~/sting-linux
+    * patch -p1 < patch-3.4.6
+7. Build STING kernel
+    * make menuconfig (in the order given)
+        1) General setup 
+           -> Prompt for development
+        2) Processor type and features
+           -> Preemption Model
+           -> Preemptible Kernel
+        3) Security options
+           -> NSA SELinux Support
+        4) Security options
+           -> Detect vulnerabilities in programs
+    * make all
+    * make modules_install
+    * make install
+8. Reboot system 
+    * uname -r #successful if you see 3.4.0-sting-...
+9. Get sting-user tools
+    * wget [url]
+10. Build & install tools
+    * make
+    * make install # may require to provide debug versions
+        # /usr/lib/debug/usr/bin/bash.debug
+        # /usr/lib/debug/usr/bin/php.debug
+
+11. daemon - distribution specific. 
+12. Initd - distribution specific. 
+    * install the fs_setup/_sting initrd script 
+

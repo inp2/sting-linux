@@ -1,0 +1,82 @@
+INTRODUCTION
+============
+
+STING is a tool to find name resolution vulnerabilities in programs.
+
+It is described in the USENIX Security 2012 paper
+"STING: Finding Name Resolution Vulnerabilities in Programs" by
+
+Hayawardh Vijayakumar <hvijay@cse.psu.edu>,
+Joshua Schiffman <jschiffm@cse.psu.edu>,
+Trent Jaeger <tjaeger@cse.psu.edu>
+
+The paper and a video of the presentation is available at:
+https://www.usenix.org/conference/usenixsecurity12/sting-finding-name-resolution-vulnerabilities-programs
+
+STING's website is http://siis.cse.psu.edu/sting
+
+NAME RESOLUTION VULNERABILITIES
+
+Name resolution converts names (e.g., /etc/passwd ) into resources,
+such as files. However, adversaries share portions of the namespace
+with victim programs (e.g., /tmp ), and attempt to exploit victim
+programs running at higher privileges (e.g., as root). Two broad
+classes of exploits are improper binding attacks and improper resource
+attacks.  In an improper binding attack, the adversary tricks a
+victim program into accessing a high-integrity (or high-secrecy)
+resource when it meant to access a low-integrity resource. Examples
+are symbolic link and hard link attacks.
+
+Example: Adversary links /tmp/low_file to /etc/passwd. Victim
+accesses /tmp/low_file but ends up with /etc/passwd
+
+In an improper resource attack, the adversary tricks a victim program
+into accessing a low-integrity resource when it meant to access a
+high-integrity resource. Examples are IPC/file squatting and untrusted
+search paths.
+
+Example: Adversary creates a malicious library in his home directory
+and waits for a victim program that has an untrusted library search
+path to load it (perhaps by an administrator launching the program
+while in the adversary's home directory).
+
+These attacks can also exploited through time-of-check-to-time-of-use
+(TOCTTOU) race conditions. Writing proper checks in programs to
+protect against these attacks is challenging for a variety of reasons.
+
+STING: FINDING NAME RESOLUTION VULNERABILITIES
+
+STING is a grey-box system-wide online tester for finding such name
+resolution vulnerabilities in programs. It does this by dynamically
+simulating adversarial actions on the system namespace, and evaluating
+a program's response. For example, if a program accesses
+/tmp/low_file, STING creates a symbolic link to /etc/passwd in its
+place (not exactly to /etc/passwd, but to another file having same
+properties).  If the program later ends up writing to /etc/passwd, it
+is vulnerable.
+
+LICENSE
+=======
+
+Please see the LICENSE file in the same directory for licensing
+and copyright information.
+
+INSTALLATION
+============
+
+**** WARNING ****  **** WARNING ****  **** WARNING ****  **** WARNING ****
+
+STING WILL POSSIBLY DELETE CRITICAL SYSTEM FILES WHILE TESTING. DO NOT
+INSTALL STING ON A PRODUCTION SYSTEM OR A SYSTEM WITH CRITICAL
+FILES!
+
+Instead, test STING on a replica of your production setup (e.g., a VM
+clone).
+
+Please see the INSTALL file in the same directory for installation
+instructions.
+
+USAGE
+=====
+
+Please see the USAGE file. 
