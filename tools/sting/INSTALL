@@ -27,7 +27,7 @@ Ubuntu 14.04 LTS 32-bit:
 1. Install Ubuntu
 
 2. Prerequisites for STING kernel 
-    $ sudo apt-get install git libsepol1-dev (ubuntu 14.04) libncurses5-dev build-essential coreutils selinux selinux-utils selinux-policy-ubuntu
+    $ sudo apt-get install git libsepol1-dev libselinux1-dev libncurses5-dev build-essential coreutils selinux selinux-utils selinux-policy-ubuntu
 	# selinux will ask you to reboot. do it.
 
 4. Get STING source code (may use as much as 20GB)
